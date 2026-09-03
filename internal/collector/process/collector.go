@@ -3,6 +3,8 @@ package process
 import (
 	"context"
 
+	"time"
+
 	gopsprocess "github.com/shirou/gopsutil/v3/process"
 
 	"github.com/arafatmannan/sentinel/internal/core"
@@ -29,10 +31,11 @@ func (c *Collector) Collect(ctx context.Context) (*core.ProcessSnapshot, error) 
 		exe, _ := p.ExeWithContext(ctx)
 		cmdline, _ := p.CmdlineWithContext(ctx)
 		ppid, _ := p.PpidWithContext(ctx)
-
+		startTime, _ := p.CreateTimeWithContext(ctx)
 		process := core.Process{
 			PID:         p.Pid,
 			PPID:        ppid,
+			StartTime:   time.UnixMilli(startTime),
 			Name:        name,
 			Executable:  exe,
 			CommandLine: cmdline,

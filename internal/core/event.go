@@ -34,16 +34,3 @@ type Event struct {
 
 	Metadata map[string]any
 }
-
-type Process struct {
-	PID         int32
-	PPID        int32
-	Name        string
-	Executable  string
-	CommandLine string
-	User        string
-}
-
-type ProcessSnapshot struct {
-	Processes []Process
-}

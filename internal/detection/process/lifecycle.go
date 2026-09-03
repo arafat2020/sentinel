@@ -7,24 +7,24 @@ import (
 )
 
 type LifecycleDetector struct {
-	previous    map[int32]core.Process
+	previous    map[core.ProcessIdentity]core.Process
 	initialized bool
 }
 
 func NewLifecycleDetector() *LifecycleDetector {
 	return &LifecycleDetector{
-		previous: make(map[int32]core.Process),
+		previous: make(map[core.ProcessIdentity]core.Process),
 	}
 }
 
 func (d *LifecycleDetector) Detect(
 	current *core.ProcessSnapshot,
 ) []core.Event {
-	currentProcesses := make(map[int32]core.Process)
+	currentProcesses := make(map[core.ProcessIdentity]core.Process)
 
 	// Build the current process state.
 	for _, process := range current.Processes {
-		currentProcesses[process.PID] = process
+		currentProcesses[process.Identity()] = process
 	}
 
 	// First snapshot establishes the baseline.

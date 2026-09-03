@@ -1,12 +1,12 @@
 {
   "meta": {
     "version": "1.0.0",
-    "timestamp": "2026-09-03T06:03:08.978Z",
-    "totalFiles": 5,
-    "totalLines": 238
+    "timestamp": "2026-09-03T08:21:34.810Z",
+    "totalFiles": 6,
+    "totalLines": 294
   },
   "summary": {
-    "totalNodes": 11,
+    "totalNodes": 14,
     "totalEdges": 0,
     "entryPoints": [],
     "leafNodes": [],
@@ -16,12 +16,15 @@
       "Collect__collector",
       "Collector__collector",
       "Event__event",
-      "Process__event",
-      "ProcessSnapshot__event",
+      "Identity__process",
+      "ProcessIdentity__process",
+      "Process__process",
+      "ProcessSnapshot__process",
       "NewLifecycleDetector__lifecycle",
       "Detect__lifecycle",
       "LifecycleDetector__lifecycle",
-      "TestLifecycleDetector__lifecycle_test"
+      "TestLifecycleDetector__lifecycle_test",
+      "TestDetectPIDReuse__lifecycle_test"
     ],
     "criticalNodes": []
   },
@@ -44,7 +47,7 @@
       "name": "NewCollector",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/collector/process/collector.go",
-      "line": 13,
+      "line": 15,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -57,7 +60,7 @@
       "name": "Collect",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/collector/process/collector.go",
-      "line": 17,
+      "line": 19,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -70,7 +73,7 @@
       "name": "Collector",
       "type": "class",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/collector/process/collector.go",
-      "line": 11,
+      "line": 13,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -92,11 +95,11 @@
       "connections": []
     },
     {
-      "id": "Process__event",
-      "name": "Process",
-      "type": "class",
-      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/core/event.go",
-      "line": 38,
+      "id": "Identity__process",
+      "name": "Identity",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/core/process.go",
+      "line": 20,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -105,11 +108,37 @@
       "connections": []
     },
     {
-      "id": "ProcessSnapshot__event",
+      "id": "ProcessIdentity__process",
+      "name": "ProcessIdentity",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/core/process.go",
+      "line": 5,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Process__process",
+      "name": "Process",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/core/process.go",
+      "line": 10,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "ProcessSnapshot__process",
       "name": "ProcessSnapshot",
       "type": "class",
-      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/core/event.go",
-      "line": 47,
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/core/process.go",
+      "line": 27,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -161,7 +190,20 @@
       "name": "TestLifecycleDetector",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/lifecycle_test.go",
-      "line": 9,
+      "line": 10,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestDetectPIDReuse__lifecycle_test",
+      "name": "TestDetectPIDReuse",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/lifecycle_test.go",
+      "line": 37,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -219,24 +261,24 @@
     {
       "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/collector/process/collector.go",
       "lang": "go",
-      "lines": 49,
+      "lines": 52,
       "entities": [
         {
           "name": "NewCollector",
           "type": "function",
-          "line": 13,
+          "line": 15,
           "complexity": "low"
         },
         {
           "name": "Collect",
           "type": "function",
-          "line": 17,
+          "line": 19,
           "complexity": "low"
         },
         {
           "name": "Collector",
           "type": "class",
-          "line": 11,
+          "line": 13,
           "complexity": "low"
         }
       ],
@@ -245,6 +287,13 @@
           "source": "context",
           "names": [
             "context"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "time",
+          "names": [
+            "time"
           ],
           "isLocal": false
         },
@@ -271,24 +320,12 @@
     {
       "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/core/event.go",
       "lang": "go",
-      "lines": 50,
+      "lines": 37,
       "entities": [
         {
           "name": "Event",
           "type": "class",
           "line": 25,
-          "complexity": "low"
-        },
-        {
-          "name": "Process",
-          "type": "class",
-          "line": 38,
-          "complexity": "low"
-        },
-        {
-          "name": "ProcessSnapshot",
-          "type": "class",
-          "line": 47,
           "complexity": "low"
         }
       ],
@@ -302,6 +339,49 @@
         }
       ],
       "exports": []
+    },
+    {
+      "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/core/process.go",
+      "lang": "go",
+      "lines": 30,
+      "entities": [
+        {
+          "name": "Identity",
+          "type": "function",
+          "line": 20,
+          "complexity": "low"
+        },
+        {
+          "name": "ProcessIdentity",
+          "type": "class",
+          "line": 5,
+          "complexity": "low"
+        },
+        {
+          "name": "Process",
+          "type": "class",
+          "line": 10,
+          "complexity": "low"
+        },
+        {
+          "name": "ProcessSnapshot",
+          "type": "class",
+          "line": 27,
+          "complexity": "low"
+        }
+      ],
+      "imports": [
+        {
+          "source": "time",
+          "names": [
+            "time"
+          ],
+          "isLocal": false
+        }
+      ],
+      "exports": [
+        "Identity"
+      ]
     },
     {
       "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/lifecycle.go",
@@ -351,12 +431,18 @@
     {
       "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/lifecycle_test.go",
       "lang": "go",
-      "lines": 35,
+      "lines": 71,
       "entities": [
         {
           "name": "TestLifecycleDetector",
           "type": "function",
-          "line": 9,
+          "line": 10,
+          "complexity": "low"
+        },
+        {
+          "name": "TestDetectPIDReuse",
+          "type": "function",
+          "line": 37,
           "complexity": "low"
         }
       ],
@@ -369,6 +455,13 @@
           "isLocal": false
         },
         {
+          "source": "time",
+          "names": [
+            "time"
+          ],
+          "isLocal": false
+        },
+        {
           "source": "github.com/arafatmannan/sentinel/internal/core",
           "names": [
             "github.com/arafatmannan/sentinel/internal/core"
@@ -377,7 +470,8 @@
         }
       ],
       "exports": [
-        "TestLifecycleDetector"
+        "TestLifecycleDetector",
+        "TestDetectPIDReuse"
       ]
     }
   ]

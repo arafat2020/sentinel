@@ -1,12 +1,12 @@
 {
   "meta": {
     "version": "1.0.0",
-    "timestamp": "2026-09-03T04:57:07.943Z",
-    "totalFiles": 3,
-    "totalLines": 132
+    "timestamp": "2026-09-03T06:03:08.978Z",
+    "totalFiles": 5,
+    "totalLines": 238
   },
   "summary": {
-    "totalNodes": 7,
+    "totalNodes": 11,
     "totalEdges": 0,
     "entryPoints": [],
     "leafNodes": [],
@@ -17,7 +17,11 @@
       "Collector__collector",
       "Event__event",
       "Process__event",
-      "ProcessSnapshot__event"
+      "ProcessSnapshot__event",
+      "NewLifecycleDetector__lifecycle",
+      "Detect__lifecycle",
+      "LifecycleDetector__lifecycle",
+      "TestLifecycleDetector__lifecycle_test"
     ],
     "criticalNodes": []
   },
@@ -106,6 +110,58 @@
       "type": "class",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/core/event.go",
       "line": 47,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "NewLifecycleDetector__lifecycle",
+      "name": "NewLifecycleDetector",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/lifecycle.go",
+      "line": 14,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Detect__lifecycle",
+      "name": "Detect",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/lifecycle.go",
+      "line": 20,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "LifecycleDetector__lifecycle",
+      "name": "LifecycleDetector",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/lifecycle.go",
+      "line": 9,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestLifecycleDetector__lifecycle_test",
+      "name": "TestLifecycleDetector",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/lifecycle_test.go",
+      "line": 9,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -246,6 +302,83 @@
         }
       ],
       "exports": []
+    },
+    {
+      "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/lifecycle.go",
+      "lang": "go",
+      "lines": 71,
+      "entities": [
+        {
+          "name": "NewLifecycleDetector",
+          "type": "function",
+          "line": 14,
+          "complexity": "low"
+        },
+        {
+          "name": "Detect",
+          "type": "function",
+          "line": 20,
+          "complexity": "low"
+        },
+        {
+          "name": "LifecycleDetector",
+          "type": "class",
+          "line": 9,
+          "complexity": "low"
+        }
+      ],
+      "imports": [
+        {
+          "source": "time",
+          "names": [
+            "time"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "github.com/arafatmannan/sentinel/internal/core",
+          "names": [
+            "github.com/arafatmannan/sentinel/internal/core"
+          ],
+          "isLocal": false
+        }
+      ],
+      "exports": [
+        "NewLifecycleDetector",
+        "Detect"
+      ]
+    },
+    {
+      "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/lifecycle_test.go",
+      "lang": "go",
+      "lines": 35,
+      "entities": [
+        {
+          "name": "TestLifecycleDetector",
+          "type": "function",
+          "line": 9,
+          "complexity": "low"
+        }
+      ],
+      "imports": [
+        {
+          "source": "testing",
+          "names": [
+            "testing"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "github.com/arafatmannan/sentinel/internal/core",
+          "names": [
+            "github.com/arafatmannan/sentinel/internal/core"
+          ],
+          "isLocal": false
+        }
+      ],
+      "exports": [
+        "TestLifecycleDetector"
+      ]
     }
   ]
 }

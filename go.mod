@@ -1,4 +1,4 @@
-module github.com/arafatmannan/sentinel
+module github.com/arafat2020/sentinel
 
 go 1.25.5
 

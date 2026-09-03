@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/arafatmannan/sentinel/internal/core"
+	"github.com/arafat2020/sentinel/internal/core"
 )
 
 func TestLifecycleDetector(t *testing.T) {

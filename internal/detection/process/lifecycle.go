@@ -3,7 +3,7 @@ package process
 import (
 	"time"
 
-	"github.com/arafatmannan/sentinel/internal/core"
+	"github.com/arafat2020/sentinel/internal/core"
 )
 
 type LifecycleDetector struct {

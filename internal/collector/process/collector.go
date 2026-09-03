@@ -7,7 +7,7 @@ import (
 
 	gopsprocess "github.com/shirou/gopsutil/v3/process"
 
-	"github.com/arafatmannan/sentinel/internal/core"
+	"github.com/arafat2020/sentinel/internal/core"
 )
 
 type Collector struct{}

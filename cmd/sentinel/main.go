@@ -2,31 +2,32 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-	"github.com/arafatmannan/sentinel/internal/collector/process"
+	processCollector "github.com/arafat2020/sentinel/internal/collector/process"
+	processDetector "github.com/arafat2020/sentinel/internal/detection/process"
+	"github.com/arafat2020/sentinel/internal/monitor"
 )
 
 func main() {
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+	)
+	defer stop()
 
-	collector := process.NewCollector()
+	collector := processCollector.NewCollector()
+	detector := processDetector.NewLifecycleDetector()
 
-	snapshot, err := collector.Collect(ctx)
-	if err != nil {
-		log.Fatal(err)
-	}
+	processMonitor := monitor.NewProcessMonitor(
+		collector,
+		detector,
+		2*time.Second,
+	)
 
-	fmt.Printf("Sentinel collected %d processes\n\n", len(snapshot.Processes))
-
-	for _, p := range snapshot.Processes {
-		fmt.Printf(
-			"PID=%d PPID=%d NAME=%s EXE=%s\n",
-			p.PID,
-			p.PPID,
-			p.Name,
-			p.Executable,
-		)
-	}
+	processMonitor.Run(ctx)
 }

@@ -1,12 +1,12 @@
 {
   "meta": {
     "version": "1.0.0",
-    "timestamp": "2026-09-03T08:21:34.810Z",
-    "totalFiles": 6,
-    "totalLines": 294
+    "timestamp": "2026-09-03T08:49:20.795Z",
+    "totalFiles": 7,
+    "totalLines": 365
   },
   "summary": {
-    "totalNodes": 14,
+    "totalNodes": 19,
     "totalEdges": 0,
     "entryPoints": [],
     "leafNodes": [],
@@ -24,7 +24,12 @@
       "Detect__lifecycle",
       "LifecycleDetector__lifecycle",
       "TestLifecycleDetector__lifecycle_test",
-      "TestDetectPIDReuse__lifecycle_test"
+      "TestDetectPIDReuse__lifecycle_test",
+      "NewProcessMonitor__process",
+      "Run__process",
+      "collectAndDetect__process",
+      "printEvent__process",
+      "ProcessMonitor__process"
     ],
     "criticalNodes": []
   },
@@ -34,7 +39,7 @@
       "name": "main",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/cmd/sentinel/main.go",
-      "line": 11,
+      "line": 15,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -210,6 +215,71 @@
       "outDegree": 0,
       "centralityScore": 0,
       "connections": []
+    },
+    {
+      "id": "NewProcessMonitor__process",
+      "name": "NewProcessMonitor",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process.go",
+      "line": 19,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Run__process",
+      "name": "Run",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process.go",
+      "line": 29,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "collectAndDetect__process",
+      "name": "collectAndDetect",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process.go",
+      "line": 44,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "printEvent__process",
+      "name": "printEvent",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process.go",
+      "line": 57,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "ProcessMonitor__process",
+      "name": "ProcessMonitor",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process.go",
+      "line": 13,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
     }
   ],
   "edges": [],
@@ -217,12 +287,12 @@
     {
       "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/cmd/sentinel/main.go",
       "lang": "go",
-      "lines": 33,
+      "lines": 34,
       "entities": [
         {
           "name": "main",
           "type": "function",
-          "line": 11,
+          "line": 15,
           "complexity": "low"
         }
       ],
@@ -235,23 +305,51 @@
           "isLocal": false
         },
         {
-          "source": "fmt",
+          "source": "os",
           "names": [
-            "fmt"
+            "os"
           ],
           "isLocal": false
         },
         {
-          "source": "log",
+          "source": "os/signal",
           "names": [
-            "log"
+            "os/signal"
           ],
           "isLocal": false
         },
         {
-          "source": "github.com/arafatmannan/sentinel/internal/collector/process",
+          "source": "syscall",
           "names": [
-            "github.com/arafatmannan/sentinel/internal/collector/process"
+            "syscall"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "time",
+          "names": [
+            "time"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "github.com/arafat2020/sentinel/internal/collector/process",
+          "names": [
+            "github.com/arafat2020/sentinel/internal/collector/process"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "github.com/arafat2020/sentinel/internal/detection/process",
+          "names": [
+            "github.com/arafat2020/sentinel/internal/detection/process"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "github.com/arafat2020/sentinel/internal/monitor",
+          "names": [
+            "github.com/arafat2020/sentinel/internal/monitor"
           ],
           "isLocal": false
         }
@@ -305,9 +403,9 @@
           "isLocal": false
         },
         {
-          "source": "github.com/arafatmannan/sentinel/internal/core",
+          "source": "github.com/arafat2020/sentinel/internal/core",
           "names": [
-            "github.com/arafatmannan/sentinel/internal/core"
+            "github.com/arafat2020/sentinel/internal/core"
           ],
           "isLocal": false
         }
@@ -416,9 +514,9 @@
           "isLocal": false
         },
         {
-          "source": "github.com/arafatmannan/sentinel/internal/core",
+          "source": "github.com/arafat2020/sentinel/internal/core",
           "names": [
-            "github.com/arafatmannan/sentinel/internal/core"
+            "github.com/arafat2020/sentinel/internal/core"
           ],
           "isLocal": false
         }
@@ -462,9 +560,9 @@
           "isLocal": false
         },
         {
-          "source": "github.com/arafatmannan/sentinel/internal/core",
+          "source": "github.com/arafat2020/sentinel/internal/core",
           "names": [
-            "github.com/arafatmannan/sentinel/internal/core"
+            "github.com/arafat2020/sentinel/internal/core"
           ],
           "isLocal": false
         }
@@ -472,6 +570,91 @@
       "exports": [
         "TestLifecycleDetector",
         "TestDetectPIDReuse"
+      ]
+    },
+    {
+      "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process.go",
+      "lang": "go",
+      "lines": 70,
+      "entities": [
+        {
+          "name": "NewProcessMonitor",
+          "type": "function",
+          "line": 19,
+          "complexity": "low"
+        },
+        {
+          "name": "Run",
+          "type": "function",
+          "line": 29,
+          "complexity": "low"
+        },
+        {
+          "name": "collectAndDetect",
+          "type": "function",
+          "line": 44,
+          "complexity": "low"
+        },
+        {
+          "name": "printEvent",
+          "type": "function",
+          "line": 57,
+          "complexity": "low"
+        },
+        {
+          "name": "ProcessMonitor",
+          "type": "class",
+          "line": 13,
+          "complexity": "low"
+        }
+      ],
+      "imports": [
+        {
+          "source": "context",
+          "names": [
+            "context"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "fmt",
+          "names": [
+            "fmt"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "time",
+          "names": [
+            "time"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "github.com/arafat2020/sentinel/internal/collector/process",
+          "names": [
+            "github.com/arafat2020/sentinel/internal/collector/process"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "github.com/arafat2020/sentinel/internal/core",
+          "names": [
+            "github.com/arafat2020/sentinel/internal/core"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "github.com/arafat2020/sentinel/internal/detection/process",
+          "names": [
+            "github.com/arafat2020/sentinel/internal/detection/process"
+          ],
+          "isLocal": false
+        }
+      ],
+      "exports": [
+        "NewProcessMonitor",
+        "Run"
       ]
     }
   ]

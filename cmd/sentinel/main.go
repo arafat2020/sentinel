@@ -13,16 +13,14 @@ func main() {
 
 	collector := process.NewCollector()
 
-	events, err := collector.Collect(ctx)
+	snapshot, err := collector.Collect(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("Sentinel collected %d processes\n\n", len(events))
+	fmt.Printf("Sentinel collected %d processes\n\n", len(snapshot.Processes))
 
-	for _, event := range events {
-		p := event.Process
-
+	for _, p := range snapshot.Processes {
 		fmt.Printf(
 			"PID=%d PPID=%d NAME=%s EXE=%s\n",
 			p.PID,

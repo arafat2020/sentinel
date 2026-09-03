@@ -30,16 +30,20 @@ type Event struct {
 	HostID string
 	OS     string
 
-	Process *ProcessEvent
+	Process *Process
 
 	Metadata map[string]any
 }
 
-type ProcessEvent struct {
+type Process struct {
 	PID         int32
 	PPID        int32
 	Name        string
 	Executable  string
 	CommandLine string
 	User        string
+}
+
+type ProcessSnapshot struct {
+	Processes []Process
 }

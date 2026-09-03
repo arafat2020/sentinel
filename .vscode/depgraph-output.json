@@ -1,12 +1,12 @@
 {
   "meta": {
     "version": "1.0.0",
-    "timestamp": "2026-09-03T04:40:31.659Z",
+    "timestamp": "2026-09-03T04:57:07.943Z",
     "totalFiles": 3,
-    "totalLines": 128
+    "totalLines": 132
   },
   "summary": {
-    "totalNodes": 6,
+    "totalNodes": 7,
     "totalEdges": 0,
     "entryPoints": [],
     "leafNodes": [],
@@ -16,7 +16,8 @@
       "Collect__collector",
       "Collector__collector",
       "Event__event",
-      "ProcessEvent__event"
+      "Process__event",
+      "ProcessSnapshot__event"
     ],
     "criticalNodes": []
   },
@@ -87,11 +88,24 @@
       "connections": []
     },
     {
-      "id": "ProcessEvent__event",
-      "name": "ProcessEvent",
+      "id": "Process__event",
+      "name": "Process",
       "type": "class",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/core/event.go",
       "line": 38,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "ProcessSnapshot__event",
+      "name": "ProcessSnapshot",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/core/event.go",
+      "line": 47,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -105,7 +119,7 @@
     {
       "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/cmd/sentinel/main.go",
       "lang": "go",
-      "lines": 35,
+      "lines": 33,
       "entities": [
         {
           "name": "main",
@@ -149,7 +163,7 @@
     {
       "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/collector/process/collector.go",
       "lang": "go",
-      "lines": 47,
+      "lines": 49,
       "entities": [
         {
           "name": "NewCollector",
@@ -201,7 +215,7 @@
     {
       "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/core/event.go",
       "lang": "go",
-      "lines": 46,
+      "lines": 50,
       "entities": [
         {
           "name": "Event",
@@ -210,9 +224,15 @@
           "complexity": "low"
         },
         {
-          "name": "ProcessEvent",
+          "name": "Process",
           "type": "class",
           "line": 38,
+          "complexity": "low"
+        },
+        {
+          "name": "ProcessSnapshot",
+          "type": "class",
+          "line": 47,
           "complexity": "low"
         }
       ],

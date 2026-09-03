@@ -1,0 +1,231 @@
+{
+  "meta": {
+    "version": "1.0.0",
+    "timestamp": "2026-09-03T04:40:31.659Z",
+    "totalFiles": 3,
+    "totalLines": 128
+  },
+  "summary": {
+    "totalNodes": 6,
+    "totalEdges": 0,
+    "entryPoints": [],
+    "leafNodes": [],
+    "isolatedNodes": [
+      "main__main",
+      "NewCollector__collector",
+      "Collect__collector",
+      "Collector__collector",
+      "Event__event",
+      "ProcessEvent__event"
+    ],
+    "criticalNodes": []
+  },
+  "nodes": [
+    {
+      "id": "main__main",
+      "name": "main",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/cmd/sentinel/main.go",
+      "line": 11,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "NewCollector__collector",
+      "name": "NewCollector",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/collector/process/collector.go",
+      "line": 13,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Collect__collector",
+      "name": "Collect",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/collector/process/collector.go",
+      "line": 17,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Collector__collector",
+      "name": "Collector",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/collector/process/collector.go",
+      "line": 11,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Event__event",
+      "name": "Event",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/core/event.go",
+      "line": 25,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "ProcessEvent__event",
+      "name": "ProcessEvent",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/core/event.go",
+      "line": 38,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    }
+  ],
+  "edges": [],
+  "files": [
+    {
+      "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/cmd/sentinel/main.go",
+      "lang": "go",
+      "lines": 35,
+      "entities": [
+        {
+          "name": "main",
+          "type": "function",
+          "line": 11,
+          "complexity": "low"
+        }
+      ],
+      "imports": [
+        {
+          "source": "context",
+          "names": [
+            "context"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "fmt",
+          "names": [
+            "fmt"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "log",
+          "names": [
+            "log"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "github.com/arafatmannan/sentinel/internal/collector/process",
+          "names": [
+            "github.com/arafatmannan/sentinel/internal/collector/process"
+          ],
+          "isLocal": false
+        }
+      ],
+      "exports": []
+    },
+    {
+      "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/collector/process/collector.go",
+      "lang": "go",
+      "lines": 47,
+      "entities": [
+        {
+          "name": "NewCollector",
+          "type": "function",
+          "line": 13,
+          "complexity": "low"
+        },
+        {
+          "name": "Collect",
+          "type": "function",
+          "line": 17,
+          "complexity": "low"
+        },
+        {
+          "name": "Collector",
+          "type": "class",
+          "line": 11,
+          "complexity": "low"
+        }
+      ],
+      "imports": [
+        {
+          "source": "context",
+          "names": [
+            "context"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "github.com/shirou/gopsutil/v3/process",
+          "names": [
+            "github.com/shirou/gopsutil/v3/process"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "github.com/arafatmannan/sentinel/internal/core",
+          "names": [
+            "github.com/arafatmannan/sentinel/internal/core"
+          ],
+          "isLocal": false
+        }
+      ],
+      "exports": [
+        "NewCollector",
+        "Collect"
+      ]
+    },
+    {
+      "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/core/event.go",
+      "lang": "go",
+      "lines": 46,
+      "entities": [
+        {
+          "name": "Event",
+          "type": "class",
+          "line": 25,
+          "complexity": "low"
+        },
+        {
+          "name": "ProcessEvent",
+          "type": "class",
+          "line": 38,
+          "complexity": "low"
+        }
+      ],
+      "imports": [
+        {
+          "source": "time",
+          "names": [
+            "time"
+          ],
+          "isLocal": false
+        }
+      ],
+      "exports": []
+    }
+  ]
+}

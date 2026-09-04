@@ -43,11 +43,21 @@ func main() {
 	collector := processCollector.NewCollector()
 	detector := processDetector.NewLifecycleDetector()
 
+	registry := processDetector.NewRegistry()
+
+	registry.Register(
+		processDetector.NewSuspiciousChildProcessRule(),
+	)
+
+	engine := processDetector.NewEngine(registry)
+
+	coordinator := processDetector.NewCoordinator(engine)
 	processMonitor := monitor.NewProcessMonitor(
 		collector,
 		detector,
 		2*time.Second,
 		bus,
+		coordinator,
 	)
 
 	processMonitor.Run(ctx)

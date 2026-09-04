@@ -70,7 +70,7 @@ func TestCoordinatorEvaluatesProcessStart(t *testing.T) {
 
 	coordinator.UpdateSnapshot(snapshot)
 
-	findings := coordinator.Handle(event, snapshot)
+	findings := coordinator.Handle(event)
 
 	if len(findings) != 1 {
 		t.Fatalf(
@@ -116,15 +116,14 @@ func TestCoordinatorIgnoresProcessExit(t *testing.T) {
 		Process:   &child,
 	}
 
-	findings := coordinator.Handle(
-		event,
-		&core.ProcessSnapshot{
-			Processes: []core.Process{
-				parent,
-				child,
-			},
+	coordinator.UpdateSnapshot(&core.ProcessSnapshot{
+		Processes: []core.Process{
+			parent,
+			child,
 		},
-	)
+	})
+
+	findings := coordinator.Handle(event)
 
 	if len(findings) != 0 {
 		t.Fatalf(
@@ -167,7 +166,7 @@ func TestCoordinatorCanHandleBusEvents(t *testing.T) {
 
 		coordinator.UpdateSnapshot(snapshot)
 
-		result := coordinator.Handle(event, snapshot)
+		result := coordinator.Handle(event)
 
 		mu.Lock()
 		findings = append(findings, result...)
@@ -236,7 +235,7 @@ func TestCoordinatorUsesCurrentProcessState(t *testing.T) {
 		Process:   &snapshot.Processes[1],
 	}
 
-	findings := coordinator.Handle(event, snapshot)
+	findings := coordinator.Handle(event)
 
 	if len(findings) != 1 {
 		t.Fatalf(

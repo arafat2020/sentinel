@@ -1,12 +1,12 @@
 {
   "meta": {
     "version": "1.0.0",
-    "timestamp": "2026-09-04T10:19:06.315Z",
-    "totalFiles": 22,
-    "totalLines": 2158
+    "timestamp": "2026-09-04T11:03:34.889Z",
+    "totalFiles": 23,
+    "totalLines": 2436
   },
   "summary": {
-    "totalNodes": 90,
+    "totalNodes": 103,
     "totalEdges": 0,
     "entryPoints": [],
     "leafNodes": [],
@@ -99,8 +99,21 @@
       "NewProcessMonitor__process",
       "Run__process",
       "collectAndDetect__process",
-      "printEvent__process",
-      "ProcessMonitor__process"
+      "ProcessMonitor__process",
+      "ProcessCoordinator__process",
+      "ProcessCollector__process",
+      "ProcessDetector__process",
+      "UpdateSnapshot__process_test",
+      "Collect__process_test",
+      "Detect__process_test",
+      "TestProcessMonitorPublishesLifecycleEvents__process_test",
+      "TestProcessMonitorUpdatesCoordinatorBeforePublishing__process_test",
+      "TestProcessMonitorRunPublishesEvents__process_test",
+      "TestProcessMonitorCollectsImmediately__process_test",
+      "fakeCoordinator__process_test",
+      "fakeCollector__process_test",
+      "fakeDetector__process_test",
+      "trackingCollector__process_test"
     ],
     "criticalNodes": []
   },
@@ -383,7 +396,7 @@
       "name": "TestCoordinatorCanHandleBusEvents",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/coordinator_test.go",
-      "line": 137,
+      "line": 136,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -396,7 +409,7 @@
       "name": "TestCoordinatorUsesCurrentProcessState",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/coordinator_test.go",
-      "line": 207,
+      "line": 206,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -1215,7 +1228,7 @@
       "name": "NewProcessMonitor",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process.go",
-      "line": 21,
+      "line": 32,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -1228,7 +1241,7 @@
       "name": "Run",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process.go",
-      "line": 32,
+      "line": 48,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -1241,20 +1254,7 @@
       "name": "collectAndDetect",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process.go",
-      "line": 47,
-      "lang": "go",
-      "complexity": "low",
-      "inDegree": 0,
-      "outDegree": 0,
-      "centralityScore": 0,
-      "connections": []
-    },
-    {
-      "id": "printEvent__process",
-      "name": "printEvent",
-      "type": "function",
-      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process.go",
-      "line": 60,
+      "line": 65,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -1267,7 +1267,189 @@
       "name": "ProcessMonitor",
       "type": "class",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process.go",
-      "line": 14,
+      "line": 12,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "ProcessCoordinator__process",
+      "name": "ProcessCoordinator",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process.go",
+      "line": 20,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "ProcessCollector__process",
+      "name": "ProcessCollector",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process.go",
+      "line": 24,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "ProcessDetector__process",
+      "name": "ProcessDetector",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process.go",
+      "line": 28,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "UpdateSnapshot__process_test",
+      "name": "UpdateSnapshot",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process_test.go",
+      "line": 15,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Collect__process_test",
+      "name": "Collect",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process_test.go",
+      "line": 24,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Detect__process_test",
+      "name": "Detect",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process_test.go",
+      "line": 34,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestProcessMonitorPublishesLifecycleEvents__process_test",
+      "name": "TestProcessMonitorPublishesLifecycleEvents",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process_test.go",
+      "line": 40,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestProcessMonitorUpdatesCoordinatorBeforePublishing__process_test",
+      "name": "TestProcessMonitorUpdatesCoordinatorBeforePublishing",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process_test.go",
+      "line": 88,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestProcessMonitorRunPublishesEvents__process_test",
+      "name": "TestProcessMonitorRunPublishesEvents",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process_test.go",
+      "line": 159,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestProcessMonitorCollectsImmediately__process_test",
+      "name": "TestProcessMonitorCollectsImmediately",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process_test.go",
+      "line": 229,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "fakeCoordinator__process_test",
+      "name": "fakeCoordinator",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process_test.go",
+      "line": 13,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "fakeCollector__process_test",
+      "name": "fakeCollector",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process_test.go",
+      "line": 20,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "fakeDetector__process_test",
+      "name": "fakeDetector",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process_test.go",
+      "line": 30,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "trackingCollector__process_test",
+      "name": "trackingCollector",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process_test.go",
+      "line": 217,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -1281,7 +1463,7 @@
     {
       "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/cmd/sentinel/main.go",
       "lang": "go",
-      "lines": 55,
+      "lines": 65,
       "entities": [
         {
           "name": "main",
@@ -1608,7 +1790,7 @@
     {
       "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/coordinator.go",
       "lang": "go",
-      "lines": 39,
+      "lines": 37,
       "entities": [
         {
           "name": "UpdateSnapshot",
@@ -1653,7 +1835,7 @@
     {
       "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/coordinator_test.go",
       "lang": "go",
-      "lines": 248,
+      "lines": 247,
       "entities": [
         {
           "name": "Evaluate",
@@ -1676,13 +1858,13 @@
         {
           "name": "TestCoordinatorCanHandleBusEvents",
           "type": "function",
-          "line": 137,
+          "line": 136,
           "complexity": "low"
         },
         {
           "name": "TestCoordinatorUsesCurrentProcessState",
           "type": "function",
-          "line": 207,
+          "line": 206,
           "complexity": "low"
         },
         {
@@ -2469,36 +2651,48 @@
     {
       "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process.go",
       "lang": "go",
-      "lines": 73,
+      "lines": 79,
       "entities": [
         {
           "name": "NewProcessMonitor",
-          "type": "function",
-          "line": 21,
-          "complexity": "low"
-        },
-        {
-          "name": "Run",
           "type": "function",
           "line": 32,
           "complexity": "low"
         },
         {
-          "name": "collectAndDetect",
+          "name": "Run",
           "type": "function",
-          "line": 47,
+          "line": 48,
           "complexity": "low"
         },
         {
-          "name": "printEvent",
+          "name": "collectAndDetect",
           "type": "function",
-          "line": 60,
+          "line": 65,
           "complexity": "low"
         },
         {
           "name": "ProcessMonitor",
           "type": "class",
-          "line": 14,
+          "line": 12,
+          "complexity": "low"
+        },
+        {
+          "name": "ProcessCoordinator",
+          "type": "class",
+          "line": 20,
+          "complexity": "low"
+        },
+        {
+          "name": "ProcessCollector",
+          "type": "class",
+          "line": 24,
+          "complexity": "low"
+        },
+        {
+          "name": "ProcessDetector",
+          "type": "class",
+          "line": 28,
           "complexity": "low"
         }
       ],
@@ -2511,13 +2705,6 @@
           "isLocal": false
         },
         {
-          "source": "fmt",
-          "names": [
-            "fmt"
-          ],
-          "isLocal": false
-        },
-        {
           "source": "time",
           "names": [
             "time"
@@ -2525,9 +2712,116 @@
           "isLocal": false
         },
         {
-          "source": "github.com/arafat2020/sentinel/internal/collector/process",
+          "source": "github.com/arafat2020/sentinel/internal/core",
           "names": [
-            "github.com/arafat2020/sentinel/internal/collector/process"
+            "github.com/arafat2020/sentinel/internal/core"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "github.com/arafat2020/sentinel/internal/eventbus",
+          "names": [
+            "github.com/arafat2020/sentinel/internal/eventbus"
+          ],
+          "isLocal": false
+        }
+      ],
+      "exports": [
+        "NewProcessMonitor",
+        "Run"
+      ]
+    },
+    {
+      "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process_test.go",
+      "lang": "go",
+      "lines": 265,
+      "entities": [
+        {
+          "name": "UpdateSnapshot",
+          "type": "function",
+          "line": 15,
+          "complexity": "low"
+        },
+        {
+          "name": "Collect",
+          "type": "function",
+          "line": 24,
+          "complexity": "low"
+        },
+        {
+          "name": "Detect",
+          "type": "function",
+          "line": 34,
+          "complexity": "low"
+        },
+        {
+          "name": "TestProcessMonitorPublishesLifecycleEvents",
+          "type": "function",
+          "line": 40,
+          "complexity": "low"
+        },
+        {
+          "name": "TestProcessMonitorUpdatesCoordinatorBeforePublishing",
+          "type": "function",
+          "line": 88,
+          "complexity": "low"
+        },
+        {
+          "name": "TestProcessMonitorRunPublishesEvents",
+          "type": "function",
+          "line": 159,
+          "complexity": "low"
+        },
+        {
+          "name": "TestProcessMonitorCollectsImmediately",
+          "type": "function",
+          "line": 229,
+          "complexity": "low"
+        },
+        {
+          "name": "fakeCoordinator",
+          "type": "class",
+          "line": 13,
+          "complexity": "low"
+        },
+        {
+          "name": "fakeCollector",
+          "type": "class",
+          "line": 20,
+          "complexity": "low"
+        },
+        {
+          "name": "fakeDetector",
+          "type": "class",
+          "line": 30,
+          "complexity": "low"
+        },
+        {
+          "name": "trackingCollector",
+          "type": "class",
+          "line": 217,
+          "complexity": "low"
+        }
+      ],
+      "imports": [
+        {
+          "source": "context",
+          "names": [
+            "context"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "testing",
+          "names": [
+            "testing"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "time",
+          "names": [
+            "time"
           ],
           "isLocal": false
         },
@@ -2554,8 +2848,13 @@
         }
       ],
       "exports": [
-        "NewProcessMonitor",
-        "Run"
+        "UpdateSnapshot",
+        "Collect",
+        "Detect",
+        "TestProcessMonitorPublishesLifecycleEvents",
+        "TestProcessMonitorUpdatesCoordinatorBeforePublishing",
+        "TestProcessMonitorRunPublishesEvents",
+        "TestProcessMonitorCollectsImmediately"
       ]
     }
   ]

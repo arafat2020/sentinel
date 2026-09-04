@@ -21,9 +21,7 @@ func NewCoordinator(engine *Engine) *Coordinator {
 
 func (c *Coordinator) Handle(
 	event core.Event,
-	snapshot *core.ProcessSnapshot,
 ) []*core.Finding {
-
 	if event.Type != core.EventProcessStart {
 		return nil
 	}
@@ -32,7 +30,7 @@ func (c *Coordinator) Handle(
 		return nil
 	}
 
-	tree := NewProcessTree(snapshot)
+	tree := NewProcessTree(c.snapshot)
 
 	return c.engine.Evaluate(tree)
 }

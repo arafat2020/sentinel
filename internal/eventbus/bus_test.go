@@ -360,3 +360,142 @@ func TestBusConcurrentPublishAndShutdown(t *testing.T) {
 		}
 	}
 }
+
+func TestBusShutdownDrainsAndStopsWorker(t *testing.T) {
+	bus := New(10)
+
+	received := make(chan core.Event, 2)
+
+	bus.Subscribe(func(event core.Event) {
+		received <- event
+	})
+
+	ctx := context.Background()
+	bus.Start(ctx)
+
+	event1 := core.Event{
+		Type: core.EventProcessStart,
+	}
+
+	event2 := core.Event{
+		Type: core.EventProcessExit,
+	}
+
+	if !bus.Publish(event1) {
+		t.Fatal("expected event1 to be published")
+	}
+
+	if !bus.Publish(event2) {
+		t.Fatal("expected event2 to be published")
+	}
+
+	bus.Shutdown()
+
+	for i := 0; i < 2; i++ {
+		select {
+		case <-received:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for queued event")
+		}
+	}
+}
+
+func TestBusShutdownStopsWorker(t *testing.T) {
+	bus := New(10)
+
+	ctx := context.Background()
+	bus.Start(ctx)
+
+	bus.Shutdown()
+
+	done := make(chan struct{})
+
+	go func() {
+		bus.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Worker exited successfully.
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for event bus worker to stop")
+	}
+}
+
+func TestBusShutdownCompletesWithBlockedPublisher(t *testing.T) {
+	bus := New(1)
+
+	handlerStarted := make(chan struct{})
+	releaseHandler := make(chan struct{})
+
+	var once sync.Once
+
+	bus.Subscribe(func(event core.Event) {
+		once.Do(func() {
+			close(handlerStarted)
+		})
+
+		<-releaseHandler
+	})
+
+	ctx := context.Background()
+	bus.Start(ctx)
+
+	event := core.Event{
+		Type: core.EventProcessStart,
+	}
+
+	if !bus.Publish(event) {
+		t.Fatal("expected first event to be published")
+	}
+
+	select {
+	case <-handlerStarted:
+	case <-time.After(time.Second):
+		t.Fatal("handler did not start")
+	}
+
+	if !bus.Publish(event) {
+		t.Fatal("expected second event to be queued")
+	}
+
+	publishDone := make(chan bool)
+
+	go func() {
+		publishDone <- bus.Publish(event)
+	}()
+
+	select {
+	case <-publishDone:
+		t.Fatal("expected third publish to block")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	bus.Shutdown()
+
+	close(releaseHandler)
+
+	select {
+	case result := <-publishDone:
+		if result {
+			t.Fatal("expected blocked publisher to be rejected")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("blocked publisher did not return")
+	}
+
+	done := make(chan struct{})
+
+	go func() {
+		bus.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Worker exited successfully.
+	case <-time.After(time.Second):
+		t.Fatal("event bus worker did not stop")
+	}
+}

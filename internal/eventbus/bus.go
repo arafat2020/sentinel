@@ -15,6 +15,7 @@ type Bus struct {
 	mu       sync.RWMutex
 	closed   bool
 	done     chan struct{}
+	wg       sync.WaitGroup
 }
 
 func New(bufferSize int) *Bus {
@@ -49,9 +50,16 @@ func (b *Bus) Publish(event core.Event) bool {
 }
 
 func (b *Bus) Start(ctx context.Context) {
-	go b.processEvents(ctx)
-}
+	b.wg.Add(1)
 
+	go func() {
+		defer b.wg.Done()
+		b.processEvents(ctx)
+	}()
+}
+func (b *Bus) Wait() {
+	b.wg.Wait()
+}
 func (b *Bus) Shutdown() {
 	b.mu.Lock()
 
@@ -83,6 +91,10 @@ func (b *Bus) processEvents(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			b.drain()
+			return
+
+		case <-b.done:
 			b.drain()
 			return
 

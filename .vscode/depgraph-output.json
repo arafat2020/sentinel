@@ -1,12 +1,12 @@
 {
   "meta": {
     "version": "1.0.0",
-    "timestamp": "2026-09-04T04:24:12.338Z",
-    "totalFiles": 9,
-    "totalLines": 848
+    "timestamp": "2026-09-04T09:11:53.462Z",
+    "totalFiles": 21,
+    "totalLines": 1934
   },
   "summary": {
-    "totalNodes": 36,
+    "totalNodes": 85,
     "totalEdges": 0,
     "entryPoints": [],
     "leafNodes": [],
@@ -16,19 +16,65 @@
       "Collect__collector",
       "Collector__collector",
       "Event__event",
+      "Evidence__evidence",
+      "TestEvidenceContainsProcess__evidence_test",
+      "TestEvidenceContainsMultipleProcesses__evidence_test",
+      "Finding__finding",
+      "TestFindingContainsEvidence__finding_test",
       "Identity__process",
       "ProcessIdentity__process",
       "Process__process",
       "ProcessSnapshot__process",
+      "NewEngine__engine",
+      "Evaluate__engine",
+      "Engine__engine",
+      "Evaluate__engine_test",
+      "TestEngineProvidesRuleContext__engine_test",
+      "TestEngineEvaluatesRegisteredRules__engine_test",
+      "unixTime__engine_test",
+      "TestEngineReturnsFindings__engine_test",
+      "TestEngineEvaluatesSuspiciousChildProcessRule__engine_test",
+      "trackingRule__engine_test",
+      "contextRule__engine_test",
+      "findingRule__engine_test",
       "NewLifecycleDetector__lifecycle",
       "Detect__lifecycle",
       "LifecycleDetector__lifecycle",
       "TestLifecycleDetector__lifecycle_test",
       "TestDetectPIDReuse__lifecycle_test",
+      "NewRegistry__registry",
+      "Register__registry",
+      "Rules__registry",
+      "Registry__registry",
+      "Evaluate__registry_test",
+      "TestRegistryStartsEmpty__registry_test",
+      "TestRegistryRegistersRule__registry_test",
+      "TestRegistryRegistersMultipleRules__registry_test",
+      "mockRule__registry_test",
+      "NewSuspiciousChildProcessRule__rule",
+      "Evaluate__rule",
+      "SuspiciousChildProcessRule__rule",
+      "RuleContext__rule",
+      "Rule__rule",
+      "TestSuspiciousChildProcessRule__rule_test",
+      "TestSuspiciousChildProcessRuleIgnoresNormalProcess__rule_test",
+      "NewProcessTree__tree",
+      "Process__tree",
+      "Parent__tree",
+      "Children__tree",
+      "Processes__tree",
+      "ProcessTree__tree",
+      "TestProcessTreeBuildsParentChildRelationship__tree_test",
+      "TestProcessTreeHandlesPIDReuse__tree_test",
+      "TestProcessTreeIgnoresMissingParent__tree_test",
+      "TestProcessTreeFindsParent__tree_test",
+      "TestProcessTreeParentReturnsFalseWhenMissing__tree_test",
+      "TestProcessTreeFindsProcess__tree_test",
       "New__bus",
       "Subscribe__bus",
       "Publish__bus",
       "Start__bus",
+      "Wait__bus",
       "Shutdown__bus",
       "drain__bus",
       "processEvents__bus",
@@ -42,6 +88,9 @@
       "TestBusShutdownIsIdempotent__bus_test",
       "TestBusShutdownPreventsNewPublishers__bus_test",
       "TestBusConcurrentPublishAndShutdown__bus_test",
+      "TestBusShutdownDrainsAndStopsWorker__bus_test",
+      "TestBusShutdownStopsWorker__bus_test",
+      "TestBusShutdownCompletesWithBlockedPublisher__bus_test",
       "NewProcessMonitor__process",
       "Run__process",
       "collectAndDetect__process",
@@ -117,6 +166,71 @@
       "connections": []
     },
     {
+      "id": "Evidence__evidence",
+      "name": "Evidence",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/core/evidence.go",
+      "line": 3,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestEvidenceContainsProcess__evidence_test",
+      "name": "TestEvidenceContainsProcess",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/core/evidence_test.go",
+      "line": 8,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestEvidenceContainsMultipleProcesses__evidence_test",
+      "name": "TestEvidenceContainsMultipleProcesses",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/core/evidence_test.go",
+      "line": 29,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Finding__finding",
+      "name": "Finding",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/core/finding.go",
+      "line": 15,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestFindingContainsEvidence__finding_test",
+      "name": "TestFindingContainsEvidence",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/core/finding_test.go",
+      "line": 8,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
       "id": "Identity__process",
       "name": "Identity",
       "type": "function",
@@ -161,6 +275,162 @@
       "type": "class",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/core/process.go",
       "line": 27,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "NewEngine__engine",
+      "name": "NewEngine",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/engine.go",
+      "line": 9,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Evaluate__engine",
+      "name": "Evaluate",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/engine.go",
+      "line": 15,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Engine__engine",
+      "name": "Engine",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/engine.go",
+      "line": 5,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Evaluate__engine_test",
+      "name": "Evaluate",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/engine_test.go",
+      "line": 18,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestEngineProvidesRuleContext__engine_test",
+      "name": "TestEngineProvidesRuleContext",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/engine_test.go",
+      "line": 34,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestEngineEvaluatesRegisteredRules__engine_test",
+      "name": "TestEngineEvaluatesRegisteredRules",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/engine_test.go",
+      "line": 62,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "unixTime__engine_test",
+      "name": "unixTime",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/engine_test.go",
+      "line": 99,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestEngineReturnsFindings__engine_test",
+      "name": "TestEngineReturnsFindings",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/engine_test.go",
+      "line": 116,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestEngineEvaluatesSuspiciousChildProcessRule__engine_test",
+      "name": "TestEngineEvaluatesSuspiciousChildProcessRule",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/engine_test.go",
+      "line": 154,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "trackingRule__engine_test",
+      "name": "trackingRule",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/engine_test.go",
+      "line": 10,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "contextRule__engine_test",
+      "name": "contextRule",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/engine_test.go",
+      "line": 14,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "findingRule__engine_test",
+      "name": "findingRule",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/engine_test.go",
+      "line": 103,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -234,11 +504,375 @@
       "connections": []
     },
     {
+      "id": "NewRegistry__registry",
+      "name": "NewRegistry",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/registry.go",
+      "line": 7,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Register__registry",
+      "name": "Register",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/registry.go",
+      "line": 13,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Rules__registry",
+      "name": "Rules",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/registry.go",
+      "line": 17,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Registry__registry",
+      "name": "Registry",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/registry.go",
+      "line": 3,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Evaluate__registry_test",
+      "name": "Evaluate",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/registry_test.go",
+      "line": 11,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestRegistryStartsEmpty__registry_test",
+      "name": "TestRegistryStartsEmpty",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/registry_test.go",
+      "line": 18,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestRegistryRegistersRule__registry_test",
+      "name": "TestRegistryRegistersRule",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/registry_test.go",
+      "line": 29,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestRegistryRegistersMultipleRules__registry_test",
+      "name": "TestRegistryRegistersMultipleRules",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/registry_test.go",
+      "line": 45,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "mockRule__registry_test",
+      "name": "mockRule",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/registry_test.go",
+      "line": 9,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "NewSuspiciousChildProcessRule__rule",
+      "name": "NewSuspiciousChildProcessRule",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/rule.go",
+      "line": 22,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Evaluate__rule",
+      "name": "Evaluate",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/rule.go",
+      "line": 29,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "SuspiciousChildProcessRule__rule",
+      "name": "SuspiciousChildProcessRule",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/rule.go",
+      "line": 10,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "RuleContext__rule",
+      "name": "RuleContext",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/rule.go",
+      "line": 14,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Rule__rule",
+      "name": "Rule",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/rule.go",
+      "line": 18,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestSuspiciousChildProcessRule__rule_test",
+      "name": "TestSuspiciousChildProcessRule",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/rule_test.go",
+      "line": 10,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestSuspiciousChildProcessRuleIgnoresNormalProcess__rule_test",
+      "name": "TestSuspiciousChildProcessRuleIgnoresNormalProcess",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/rule_test.go",
+      "line": 74,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "NewProcessTree__tree",
+      "name": "NewProcessTree",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/tree.go",
+      "line": 11,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Process__tree",
+      "name": "Process",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/tree.go",
+      "line": 44,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Parent__tree",
+      "name": "Parent",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/tree.go",
+      "line": 51,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Children__tree",
+      "name": "Children",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/tree.go",
+      "line": 58,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Processes__tree",
+      "name": "Processes",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/tree.go",
+      "line": 64,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "ProcessTree__tree",
+      "name": "ProcessTree",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/tree.go",
+      "line": 5,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestProcessTreeBuildsParentChildRelationship__tree_test",
+      "name": "TestProcessTreeBuildsParentChildRelationship",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/tree_test.go",
+      "line": 10,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestProcessTreeHandlesPIDReuse__tree_test",
+      "name": "TestProcessTreeHandlesPIDReuse",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/tree_test.go",
+      "line": 48,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestProcessTreeIgnoresMissingParent__tree_test",
+      "name": "TestProcessTreeIgnoresMissingParent",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/tree_test.go",
+      "line": 103,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestProcessTreeFindsParent__tree_test",
+      "name": "TestProcessTreeFindsParent",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/tree_test.go",
+      "line": 134,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestProcessTreeParentReturnsFalseWhenMissing__tree_test",
+      "name": "TestProcessTreeParentReturnsFalseWhenMissing",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/tree_test.go",
+      "line": 173,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestProcessTreeFindsProcess__tree_test",
+      "name": "TestProcessTreeFindsProcess",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/tree_test.go",
+      "line": 196,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
       "id": "New__bus",
       "name": "New",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus.go",
-      "line": 20,
+      "line": 21,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -251,7 +885,7 @@
       "name": "Subscribe",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus.go",
-      "line": 28,
+      "line": 29,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -264,7 +898,7 @@
       "name": "Publish",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus.go",
-      "line": 32,
+      "line": 33,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -277,7 +911,20 @@
       "name": "Start",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus.go",
-      "line": 51,
+      "line": 52,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Wait__bus",
+      "name": "Wait",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus.go",
+      "line": 60,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -290,7 +937,7 @@
       "name": "Shutdown",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus.go",
-      "line": 55,
+      "line": 63,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -303,7 +950,7 @@
       "name": "drain",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus.go",
-      "line": 69,
+      "line": 77,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -316,7 +963,7 @@
       "name": "processEvents",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus.go",
-      "line": 82,
+      "line": 90,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -447,6 +1094,45 @@
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus_test.go",
       "line": 323,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestBusShutdownDrainsAndStopsWorker__bus_test",
+      "name": "TestBusShutdownDrainsAndStopsWorker",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus_test.go",
+      "line": 364,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestBusShutdownStopsWorker__bus_test",
+      "name": "TestBusShutdownStopsWorker",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus_test.go",
+      "line": 403,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestBusShutdownCompletesWithBlockedPublisher__bus_test",
+      "name": "TestBusShutdownCompletesWithBlockedPublisher",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus_test.go",
+      "line": 426,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -698,6 +1384,115 @@
       "exports": []
     },
     {
+      "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/core/evidence.go",
+      "lang": "go",
+      "lines": 7,
+      "entities": [
+        {
+          "name": "Evidence",
+          "type": "class",
+          "line": 3,
+          "complexity": "low"
+        }
+      ],
+      "imports": [],
+      "exports": []
+    },
+    {
+      "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/core/evidence_test.go",
+      "lang": "go",
+      "lines": 63,
+      "entities": [
+        {
+          "name": "TestEvidenceContainsProcess",
+          "type": "function",
+          "line": 8,
+          "complexity": "low"
+        },
+        {
+          "name": "TestEvidenceContainsMultipleProcesses",
+          "type": "function",
+          "line": 29,
+          "complexity": "low"
+        }
+      ],
+      "imports": [
+        {
+          "source": "testing",
+          "names": [
+            "testing"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "time",
+          "names": [
+            "time"
+          ],
+          "isLocal": false
+        }
+      ],
+      "exports": [
+        "TestEvidenceContainsProcess",
+        "TestEvidenceContainsMultipleProcesses"
+      ]
+    },
+    {
+      "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/core/finding.go",
+      "lang": "go",
+      "lines": 24,
+      "entities": [
+        {
+          "name": "Finding",
+          "type": "class",
+          "line": 15,
+          "complexity": "low"
+        }
+      ],
+      "imports": [
+        {
+          "source": "time",
+          "names": [
+            "time"
+          ],
+          "isLocal": false
+        }
+      ],
+      "exports": []
+    },
+    {
+      "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/core/finding_test.go",
+      "lang": "go",
+      "lines": 43,
+      "entities": [
+        {
+          "name": "TestFindingContainsEvidence",
+          "type": "function",
+          "line": 8,
+          "complexity": "low"
+        }
+      ],
+      "imports": [
+        {
+          "source": "testing",
+          "names": [
+            "testing"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "time",
+          "names": [
+            "time"
+          ],
+          "isLocal": false
+        }
+      ],
+      "exports": [
+        "TestFindingContainsEvidence"
+      ]
+    },
+    {
       "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/core/process.go",
       "lang": "go",
       "lines": 30,
@@ -738,6 +1533,135 @@
       ],
       "exports": [
         "Identity"
+      ]
+    },
+    {
+      "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/engine.go",
+      "lang": "go",
+      "lines": 33,
+      "entities": [
+        {
+          "name": "NewEngine",
+          "type": "function",
+          "line": 9,
+          "complexity": "low"
+        },
+        {
+          "name": "Evaluate",
+          "type": "function",
+          "line": 15,
+          "complexity": "low"
+        },
+        {
+          "name": "Engine",
+          "type": "class",
+          "line": 5,
+          "complexity": "low"
+        }
+      ],
+      "imports": [
+        {
+          "source": "github.com/arafat2020/sentinel/internal/core",
+          "names": [
+            "github.com/arafat2020/sentinel/internal/core"
+          ],
+          "isLocal": false
+        }
+      ],
+      "exports": [
+        "NewEngine",
+        "Evaluate"
+      ]
+    },
+    {
+      "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/engine_test.go",
+      "lang": "go",
+      "lines": 206,
+      "entities": [
+        {
+          "name": "Evaluate",
+          "type": "function",
+          "line": 18,
+          "complexity": "low"
+        },
+        {
+          "name": "TestEngineProvidesRuleContext",
+          "type": "function",
+          "line": 34,
+          "complexity": "low"
+        },
+        {
+          "name": "TestEngineEvaluatesRegisteredRules",
+          "type": "function",
+          "line": 62,
+          "complexity": "low"
+        },
+        {
+          "name": "unixTime",
+          "type": "function",
+          "line": 99,
+          "complexity": "low"
+        },
+        {
+          "name": "TestEngineReturnsFindings",
+          "type": "function",
+          "line": 116,
+          "complexity": "low"
+        },
+        {
+          "name": "TestEngineEvaluatesSuspiciousChildProcessRule",
+          "type": "function",
+          "line": 154,
+          "complexity": "low"
+        },
+        {
+          "name": "trackingRule",
+          "type": "class",
+          "line": 10,
+          "complexity": "low"
+        },
+        {
+          "name": "contextRule",
+          "type": "class",
+          "line": 14,
+          "complexity": "low"
+        },
+        {
+          "name": "findingRule",
+          "type": "class",
+          "line": 103,
+          "complexity": "low"
+        }
+      ],
+      "imports": [
+        {
+          "source": "testing",
+          "names": [
+            "testing"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "time",
+          "names": [
+            "time"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "github.com/arafat2020/sentinel/internal/core",
+          "names": [
+            "github.com/arafat2020/sentinel/internal/core"
+          ],
+          "isLocal": false
+        }
+      ],
+      "exports": [
+        "Evaluate",
+        "TestEngineProvidesRuleContext",
+        "TestEngineEvaluatesRegisteredRules",
+        "TestEngineReturnsFindings",
+        "TestEngineEvaluatesSuspiciousChildProcessRule"
       ]
     },
     {
@@ -832,50 +1756,395 @@
       ]
     },
     {
-      "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus.go",
+      "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/registry.go",
       "lang": "go",
-      "lines": 96,
+      "lines": 20,
       "entities": [
         {
-          "name": "New",
+          "name": "NewRegistry",
           "type": "function",
-          "line": 20,
+          "line": 7,
           "complexity": "low"
         },
         {
-          "name": "Subscribe",
+          "name": "Register",
           "type": "function",
-          "line": 28,
+          "line": 13,
           "complexity": "low"
         },
         {
-          "name": "Publish",
+          "name": "Rules",
           "type": "function",
-          "line": 32,
+          "line": 17,
           "complexity": "low"
         },
         {
-          "name": "Start",
+          "name": "Registry",
+          "type": "class",
+          "line": 3,
+          "complexity": "low"
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "NewRegistry",
+        "Register",
+        "Rules"
+      ]
+    },
+    {
+      "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/registry_test.go",
+      "lang": "go",
+      "lines": 63,
+      "entities": [
+        {
+          "name": "Evaluate",
+          "type": "function",
+          "line": 11,
+          "complexity": "low"
+        },
+        {
+          "name": "TestRegistryStartsEmpty",
+          "type": "function",
+          "line": 18,
+          "complexity": "low"
+        },
+        {
+          "name": "TestRegistryRegistersRule",
+          "type": "function",
+          "line": 29,
+          "complexity": "low"
+        },
+        {
+          "name": "TestRegistryRegistersMultipleRules",
+          "type": "function",
+          "line": 45,
+          "complexity": "low"
+        },
+        {
+          "name": "mockRule",
+          "type": "class",
+          "line": 9,
+          "complexity": "low"
+        }
+      ],
+      "imports": [
+        {
+          "source": "testing",
+          "names": [
+            "testing"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "github.com/arafat2020/sentinel/internal/core",
+          "names": [
+            "github.com/arafat2020/sentinel/internal/core"
+          ],
+          "isLocal": false
+        }
+      ],
+      "exports": [
+        "Evaluate",
+        "TestRegistryStartsEmpty",
+        "TestRegistryRegistersRule",
+        "TestRegistryRegistersMultipleRules"
+      ]
+    },
+    {
+      "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/rule.go",
+      "lang": "go",
+      "lines": 67,
+      "entities": [
+        {
+          "name": "NewSuspiciousChildProcessRule",
+          "type": "function",
+          "line": 22,
+          "complexity": "low"
+        },
+        {
+          "name": "Evaluate",
+          "type": "function",
+          "line": 29,
+          "complexity": "low"
+        },
+        {
+          "name": "SuspiciousChildProcessRule",
+          "type": "class",
+          "line": 10,
+          "complexity": "low"
+        },
+        {
+          "name": "RuleContext",
+          "type": "class",
+          "line": 14,
+          "complexity": "low"
+        },
+        {
+          "name": "Rule",
+          "type": "class",
+          "line": 18,
+          "complexity": "low"
+        }
+      ],
+      "imports": [
+        {
+          "source": "fmt",
+          "names": [
+            "fmt"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "time",
+          "names": [
+            "time"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "github.com/arafat2020/sentinel/internal/core",
+          "names": [
+            "github.com/arafat2020/sentinel/internal/core"
+          ],
+          "isLocal": false
+        }
+      ],
+      "exports": [
+        "NewSuspiciousChildProcessRule",
+        "Evaluate"
+      ]
+    },
+    {
+      "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/rule_test.go",
+      "lang": "go",
+      "lines": 110,
+      "entities": [
+        {
+          "name": "TestSuspiciousChildProcessRule",
+          "type": "function",
+          "line": 10,
+          "complexity": "low"
+        },
+        {
+          "name": "TestSuspiciousChildProcessRuleIgnoresNormalProcess",
+          "type": "function",
+          "line": 74,
+          "complexity": "low"
+        }
+      ],
+      "imports": [
+        {
+          "source": "testing",
+          "names": [
+            "testing"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "time",
+          "names": [
+            "time"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "github.com/arafat2020/sentinel/internal/core",
+          "names": [
+            "github.com/arafat2020/sentinel/internal/core"
+          ],
+          "isLocal": false
+        }
+      ],
+      "exports": [
+        "TestSuspiciousChildProcessRule",
+        "TestSuspiciousChildProcessRuleIgnoresNormalProcess"
+      ]
+    },
+    {
+      "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/tree.go",
+      "lang": "go",
+      "lines": 73,
+      "entities": [
+        {
+          "name": "NewProcessTree",
+          "type": "function",
+          "line": 11,
+          "complexity": "low"
+        },
+        {
+          "name": "Process",
+          "type": "function",
+          "line": 44,
+          "complexity": "low"
+        },
+        {
+          "name": "Parent",
           "type": "function",
           "line": 51,
           "complexity": "low"
         },
         {
+          "name": "Children",
+          "type": "function",
+          "line": 58,
+          "complexity": "low"
+        },
+        {
+          "name": "Processes",
+          "type": "function",
+          "line": 64,
+          "complexity": "low"
+        },
+        {
+          "name": "ProcessTree",
+          "type": "class",
+          "line": 5,
+          "complexity": "low"
+        }
+      ],
+      "imports": [
+        {
+          "source": "github.com/arafat2020/sentinel/internal/core",
+          "names": [
+            "github.com/arafat2020/sentinel/internal/core"
+          ],
+          "isLocal": false
+        }
+      ],
+      "exports": [
+        "NewProcessTree",
+        "Process",
+        "Parent",
+        "Children",
+        "Processes"
+      ]
+    },
+    {
+      "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/tree_test.go",
+      "lang": "go",
+      "lines": 226,
+      "entities": [
+        {
+          "name": "TestProcessTreeBuildsParentChildRelationship",
+          "type": "function",
+          "line": 10,
+          "complexity": "low"
+        },
+        {
+          "name": "TestProcessTreeHandlesPIDReuse",
+          "type": "function",
+          "line": 48,
+          "complexity": "low"
+        },
+        {
+          "name": "TestProcessTreeIgnoresMissingParent",
+          "type": "function",
+          "line": 103,
+          "complexity": "low"
+        },
+        {
+          "name": "TestProcessTreeFindsParent",
+          "type": "function",
+          "line": 134,
+          "complexity": "low"
+        },
+        {
+          "name": "TestProcessTreeParentReturnsFalseWhenMissing",
+          "type": "function",
+          "line": 173,
+          "complexity": "low"
+        },
+        {
+          "name": "TestProcessTreeFindsProcess",
+          "type": "function",
+          "line": 196,
+          "complexity": "low"
+        }
+      ],
+      "imports": [
+        {
+          "source": "testing",
+          "names": [
+            "testing"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "time",
+          "names": [
+            "time"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "github.com/arafat2020/sentinel/internal/core",
+          "names": [
+            "github.com/arafat2020/sentinel/internal/core"
+          ],
+          "isLocal": false
+        }
+      ],
+      "exports": [
+        "TestProcessTreeBuildsParentChildRelationship",
+        "TestProcessTreeHandlesPIDReuse",
+        "TestProcessTreeIgnoresMissingParent",
+        "TestProcessTreeFindsParent",
+        "TestProcessTreeParentReturnsFalseWhenMissing",
+        "TestProcessTreeFindsProcess"
+      ]
+    },
+    {
+      "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus.go",
+      "lang": "go",
+      "lines": 108,
+      "entities": [
+        {
+          "name": "New",
+          "type": "function",
+          "line": 21,
+          "complexity": "low"
+        },
+        {
+          "name": "Subscribe",
+          "type": "function",
+          "line": 29,
+          "complexity": "low"
+        },
+        {
+          "name": "Publish",
+          "type": "function",
+          "line": 33,
+          "complexity": "low"
+        },
+        {
+          "name": "Start",
+          "type": "function",
+          "line": 52,
+          "complexity": "low"
+        },
+        {
+          "name": "Wait",
+          "type": "function",
+          "line": 60,
+          "complexity": "low"
+        },
+        {
           "name": "Shutdown",
           "type": "function",
-          "line": 55,
+          "line": 63,
           "complexity": "low"
         },
         {
           "name": "drain",
           "type": "function",
-          "line": 69,
+          "line": 77,
           "complexity": "low"
         },
         {
           "name": "processEvents",
           "type": "function",
-          "line": 82,
+          "line": 90,
           "complexity": "low"
         },
         {
@@ -913,13 +2182,14 @@
         "Subscribe",
         "Publish",
         "Start",
+        "Wait",
         "Shutdown"
       ]
     },
     {
       "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus_test.go",
       "lang": "go",
-      "lines": 363,
+      "lines": 502,
       "entities": [
         {
           "name": "TestBusPublish",
@@ -974,6 +2244,24 @@
           "type": "function",
           "line": 323,
           "complexity": "low"
+        },
+        {
+          "name": "TestBusShutdownDrainsAndStopsWorker",
+          "type": "function",
+          "line": 364,
+          "complexity": "low"
+        },
+        {
+          "name": "TestBusShutdownStopsWorker",
+          "type": "function",
+          "line": 403,
+          "complexity": "low"
+        },
+        {
+          "name": "TestBusShutdownCompletesWithBlockedPublisher",
+          "type": "function",
+          "line": 426,
+          "complexity": "low"
         }
       ],
       "imports": [
@@ -1022,7 +2310,10 @@
         "TestBusBlockedPublishUnblocksAfterShutdown",
         "TestBusShutdownIsIdempotent",
         "TestBusShutdownPreventsNewPublishers",
-        "TestBusConcurrentPublishAndShutdown"
+        "TestBusConcurrentPublishAndShutdown",
+        "TestBusShutdownDrainsAndStopsWorker",
+        "TestBusShutdownStopsWorker",
+        "TestBusShutdownCompletesWithBlockedPublisher"
       ]
     },
     {

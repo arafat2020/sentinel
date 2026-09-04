@@ -190,28 +190,173 @@ func TestBusDrainsQueuedEventsBeforeShutdown(t *testing.T) {
 func TestBusRejectsPublishAfterShutdown(t *testing.T) {
 	bus := New(10)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	bus.Start(ctx)
+	bus.Start(context.Background())
 
-	cancel()
+	bus.Shutdown()
 
-	// Give the worker a moment to observe cancellation.
-	time.Sleep(10 * time.Millisecond)
+	if accepted := bus.Publish(core.Event{
+		Type: core.EventProcessStart,
+	}); accepted {
+		t.Fatal("expected Publish to reject event after shutdown")
+	}
+}
 
-	done := make(chan struct{})
+func TestBusBlockedPublishUnblocksAfterShutdown(t *testing.T) {
+	bus := New(1)
 
-	go func() {
-		bus.Publish(core.Event{
-			Type: core.EventProcessStart,
+	handlerStarted := make(chan struct{})
+	releaseHandler := make(chan struct{})
+
+	var once sync.Once
+
+	bus.Subscribe(func(event core.Event) {
+		once.Do(func() {
+			close(handlerStarted)
 		})
 
-		close(done)
+		<-releaseHandler
+	})
+
+	ctx := context.Background()
+	bus.Start(ctx)
+
+	// Worker takes event1 and gets stuck in the handler.
+	if !bus.Publish(core.Event{
+		Type: core.EventProcessStart,
+	}) {
+		t.Fatal("event1 should be accepted")
+	}
+
+	select {
+	case <-handlerStarted:
+	case <-time.After(time.Second):
+		t.Fatal("handler did not start")
+	}
+
+	// Fill the queue.
+	if !bus.Publish(core.Event{
+		Type: core.EventProcessExit,
+	}) {
+		t.Fatal("event2 should be accepted")
+	}
+
+	// This Publish must block because the queue is full.
+	publishDone := make(chan bool)
+
+	go func() {
+		publishDone <- bus.Publish(core.Event{
+			Type: core.EventProcessStart,
+		})
 	}()
 
 	select {
-	case <-done:
-		// Publish returned.
+	case <-publishDone:
+		t.Fatal("event3 should be blocked")
+	case <-time.After(100 * time.Millisecond):
+		// Expected.
+	}
+
+	// Shutdown the bus.
+	bus.Shutdown()
+
+	// Release the worker.
+	close(releaseHandler)
+
+	// The blocked publisher must eventually finish.
+	select {
+	case accepted := <-publishDone:
+		if accepted {
+			t.Fatal("event3 should be rejected after shutdown")
+		}
 	case <-time.After(time.Second):
-		t.Fatal("Publish blocked after shutdown")
+		t.Fatal("blocked Publish never returned after shutdown")
+	}
+}
+
+func TestBusShutdownIsIdempotent(t *testing.T) {
+	bus := New(10)
+
+	bus.Shutdown()
+	bus.Shutdown()
+	bus.Shutdown()
+
+	if accepted := bus.Publish(core.Event{
+		Type: core.EventProcessStart,
+	}); accepted {
+		t.Fatal("expected Publish to reject events after shutdown")
+	}
+}
+
+func TestBusShutdownPreventsNewPublishers(t *testing.T) {
+	bus := New(1)
+
+	bus.Start(context.Background())
+
+	// Shut the bus down first.
+	bus.Shutdown()
+
+	const publishers = 100
+
+	results := make(chan bool, publishers)
+
+	for i := 0; i < publishers; i++ {
+		go func() {
+			results <- bus.Publish(core.Event{
+				Type: core.EventProcessStart,
+			})
+		}()
+	}
+
+	for i := 0; i < publishers; i++ {
+		select {
+		case accepted := <-results:
+			if accepted {
+				t.Fatal("Publish accepted an event after shutdown")
+			}
+
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for Publish")
+		}
+	}
+}
+
+func TestBusConcurrentPublishAndShutdown(t *testing.T) {
+	bus := New(1)
+
+	ctx := context.Background()
+	bus.Start(ctx)
+
+	// Put one event in the queue.
+	if !bus.Publish(core.Event{
+		Type: core.EventProcessStart,
+	}) {
+		t.Fatal("expected first event to be accepted")
+	}
+
+	// Start many publishers.
+	const publishers = 100
+
+	results := make(chan bool, publishers)
+
+	for i := 0; i < publishers; i++ {
+		go func() {
+			results <- bus.Publish(core.Event{
+				Type: core.EventProcessStart,
+			})
+		}()
+	}
+
+	// Shutdown concurrently with the publishers.
+	bus.Shutdown()
+
+	// Every publisher must eventually finish.
+	for i := 0; i < publishers; i++ {
+		select {
+		case <-results:
+			// Either result is acceptable for a publisher that
+			// raced with shutdown.
+		case <-time.After(time.Second):
+			t.Fatal("Publish remained blocked after shutdown")
+		}
 	}
 }

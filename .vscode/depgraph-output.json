@@ -1,12 +1,12 @@
 {
   "meta": {
     "version": "1.0.0",
-    "timestamp": "2026-09-04T03:42:39.101Z",
+    "timestamp": "2026-09-04T04:24:12.338Z",
     "totalFiles": 9,
-    "totalLines": 669
+    "totalLines": 848
   },
   "summary": {
-    "totalNodes": 31,
+    "totalNodes": 36,
     "totalEdges": 0,
     "entryPoints": [],
     "leafNodes": [],
@@ -29,6 +29,7 @@
       "Subscribe__bus",
       "Publish__bus",
       "Start__bus",
+      "Shutdown__bus",
       "drain__bus",
       "processEvents__bus",
       "Bus__bus",
@@ -37,6 +38,10 @@
       "TestBusAppliesBackpressure__bus_test",
       "TestBusDrainsQueuedEventsBeforeShutdown__bus_test",
       "TestBusRejectsPublishAfterShutdown__bus_test",
+      "TestBusBlockedPublishUnblocksAfterShutdown__bus_test",
+      "TestBusShutdownIsIdempotent__bus_test",
+      "TestBusShutdownPreventsNewPublishers__bus_test",
+      "TestBusConcurrentPublishAndShutdown__bus_test",
       "NewProcessMonitor__process",
       "Run__process",
       "collectAndDetect__process",
@@ -233,7 +238,7 @@
       "name": "New",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus.go",
-      "line": 16,
+      "line": 20,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -246,7 +251,7 @@
       "name": "Subscribe",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus.go",
-      "line": 22,
+      "line": 28,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -259,7 +264,7 @@
       "name": "Publish",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus.go",
-      "line": 26,
+      "line": 32,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -272,7 +277,20 @@
       "name": "Start",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus.go",
-      "line": 31,
+      "line": 51,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Shutdown__bus",
+      "name": "Shutdown",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus.go",
+      "line": 55,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -285,7 +303,7 @@
       "name": "drain",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus.go",
-      "line": 35,
+      "line": 69,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -298,7 +316,7 @@
       "name": "processEvents",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus.go",
-      "line": 48,
+      "line": 82,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -311,7 +329,7 @@
       "name": "Bus",
       "type": "class",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus.go",
-      "line": 11,
+      "line": 12,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -377,6 +395,58 @@
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus_test.go",
       "line": 190,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestBusBlockedPublishUnblocksAfterShutdown__bus_test",
+      "name": "TestBusBlockedPublishUnblocksAfterShutdown",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus_test.go",
+      "line": 204,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestBusShutdownIsIdempotent__bus_test",
+      "name": "TestBusShutdownIsIdempotent",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus_test.go",
+      "line": 276,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestBusShutdownPreventsNewPublishers__bus_test",
+      "name": "TestBusShutdownPreventsNewPublishers",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus_test.go",
+      "line": 290,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestBusConcurrentPublishAndShutdown__bus_test",
+      "name": "TestBusConcurrentPublishAndShutdown",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus_test.go",
+      "line": 323,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -764,48 +834,54 @@
     {
       "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus.go",
       "lang": "go",
-      "lines": 62,
+      "lines": 96,
       "entities": [
         {
           "name": "New",
           "type": "function",
-          "line": 16,
+          "line": 20,
           "complexity": "low"
         },
         {
           "name": "Subscribe",
           "type": "function",
-          "line": 22,
+          "line": 28,
           "complexity": "low"
         },
         {
           "name": "Publish",
           "type": "function",
-          "line": 26,
+          "line": 32,
           "complexity": "low"
         },
         {
           "name": "Start",
           "type": "function",
-          "line": 31,
+          "line": 51,
+          "complexity": "low"
+        },
+        {
+          "name": "Shutdown",
+          "type": "function",
+          "line": 55,
           "complexity": "low"
         },
         {
           "name": "drain",
           "type": "function",
-          "line": 35,
+          "line": 69,
           "complexity": "low"
         },
         {
           "name": "processEvents",
           "type": "function",
-          "line": 48,
+          "line": 82,
           "complexity": "low"
         },
         {
           "name": "Bus",
           "type": "class",
-          "line": 11,
+          "line": 12,
           "complexity": "low"
         }
       ],
@@ -814,6 +890,13 @@
           "source": "context",
           "names": [
             "context"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "sync",
+          "names": [
+            "sync"
           ],
           "isLocal": false
         },
@@ -829,13 +912,14 @@
         "New",
         "Subscribe",
         "Publish",
-        "Start"
+        "Start",
+        "Shutdown"
       ]
     },
     {
       "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus_test.go",
       "lang": "go",
-      "lines": 218,
+      "lines": 363,
       "entities": [
         {
           "name": "TestBusPublish",
@@ -865,6 +949,30 @@
           "name": "TestBusRejectsPublishAfterShutdown",
           "type": "function",
           "line": 190,
+          "complexity": "low"
+        },
+        {
+          "name": "TestBusBlockedPublishUnblocksAfterShutdown",
+          "type": "function",
+          "line": 204,
+          "complexity": "low"
+        },
+        {
+          "name": "TestBusShutdownIsIdempotent",
+          "type": "function",
+          "line": 276,
+          "complexity": "low"
+        },
+        {
+          "name": "TestBusShutdownPreventsNewPublishers",
+          "type": "function",
+          "line": 290,
+          "complexity": "low"
+        },
+        {
+          "name": "TestBusConcurrentPublishAndShutdown",
+          "type": "function",
+          "line": 323,
           "complexity": "low"
         }
       ],
@@ -910,7 +1018,11 @@
         "TestBusPublishesToMultipleHandlers",
         "TestBusAppliesBackpressure",
         "TestBusDrainsQueuedEventsBeforeShutdown",
-        "TestBusRejectsPublishAfterShutdown"
+        "TestBusRejectsPublishAfterShutdown",
+        "TestBusBlockedPublishUnblocksAfterShutdown",
+        "TestBusShutdownIsIdempotent",
+        "TestBusShutdownPreventsNewPublishers",
+        "TestBusConcurrentPublishAndShutdown"
       ]
     },
     {

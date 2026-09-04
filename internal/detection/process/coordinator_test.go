@@ -61,15 +61,16 @@ func TestCoordinatorEvaluatesProcessStart(t *testing.T) {
 		Process:   &child,
 	}
 
-	findings := coordinator.Handle(
-		event,
-		&core.ProcessSnapshot{
-			Processes: []core.Process{
-				parent,
-				child,
-			},
+	snapshot := &core.ProcessSnapshot{
+		Processes: []core.Process{
+			parent,
+			child,
 		},
-	)
+	}
+
+	coordinator.UpdateSnapshot(snapshot)
+
+	findings := coordinator.Handle(event, snapshot)
 
 	if len(findings) != 1 {
 		t.Fatalf(
@@ -147,25 +148,26 @@ func TestCoordinatorCanHandleBusEvents(t *testing.T) {
 	var mu sync.Mutex
 
 	bus.Subscribe(func(event core.Event) {
-		result := coordinator.Handle(
-			event,
-			&core.ProcessSnapshot{
-				Processes: []core.Process{
-					{
-						PID:       100,
-						PPID:      1,
-						StartTime: time.Unix(1000, 0),
-						Name:      "node",
-					},
-					{
-						PID:       200,
-						PPID:      100,
-						StartTime: time.Unix(2000, 0),
-						Name:      "python",
-					},
+		snapshot := &core.ProcessSnapshot{
+			Processes: []core.Process{
+				{
+					PID:       100,
+					PPID:      1,
+					StartTime: time.Unix(1000, 0),
+					Name:      "node",
+				},
+				{
+					PID:       200,
+					PPID:      100,
+					StartTime: time.Unix(2000, 0),
+					Name:      "python",
 				},
 			},
-		)
+		}
+
+		coordinator.UpdateSnapshot(snapshot)
+
+		result := coordinator.Handle(event, snapshot)
 
 		mu.Lock()
 		findings = append(findings, result...)
@@ -200,4 +202,46 @@ func TestCoordinatorCanHandleBusEvents(t *testing.T) {
 		)
 	}
 
+}
+
+func TestCoordinatorUsesCurrentProcessState(t *testing.T) {
+	registry := NewRegistry()
+	registry.Register(&findingCoordinatorRule{})
+
+	engine := NewEngine(registry)
+	coordinator := NewCoordinator(engine)
+
+	snapshot := &core.ProcessSnapshot{
+		Processes: []core.Process{
+			{
+				PID:       100,
+				PPID:      1,
+				StartTime: time.Unix(1000, 0),
+				Name:      "node",
+			},
+			{
+				PID:       200,
+				PPID:      100,
+				StartTime: time.Unix(2000, 0),
+				Name:      "python",
+			},
+		},
+	}
+
+	coordinator.UpdateSnapshot(snapshot)
+
+	event := core.Event{
+		Type:      core.EventProcessStart,
+		Timestamp: time.Now(),
+		Process:   &snapshot.Processes[1],
+	}
+
+	findings := coordinator.Handle(event, snapshot)
+
+	if len(findings) != 1 {
+		t.Fatalf(
+			"expected 1 finding, got %d",
+			len(findings),
+		)
+	}
 }

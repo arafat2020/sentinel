@@ -1,12 +1,12 @@
 {
   "meta": {
     "version": "1.0.0",
-    "timestamp": "2026-09-04T09:54:05.935Z",
+    "timestamp": "2026-09-04T10:19:06.315Z",
     "totalFiles": 22,
-    "totalLines": 2031
+    "totalLines": 2158
   },
   "summary": {
-    "totalNodes": 87,
+    "totalNodes": 90,
     "totalEdges": 0,
     "entryPoints": [],
     "leafNodes": [],
@@ -25,12 +25,15 @@
       "ProcessIdentity__process",
       "Process__process",
       "ProcessSnapshot__process",
+      "UpdateSnapshot__coordinator",
       "NewCoordinator__coordinator",
       "Handle__coordinator",
       "Coordinator__coordinator",
       "Evaluate__coordinator_test",
       "TestCoordinatorEvaluatesProcessStart__coordinator_test",
       "TestCoordinatorIgnoresProcessExit__coordinator_test",
+      "TestCoordinatorCanHandleBusEvents__coordinator_test",
+      "TestCoordinatorUsesCurrentProcessState__coordinator_test",
       "findingCoordinatorRule__coordinator_test",
       "NewEngine__engine",
       "Evaluate__engine",
@@ -285,11 +288,24 @@
       "connections": []
     },
     {
+      "id": "UpdateSnapshot__coordinator",
+      "name": "UpdateSnapshot",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/coordinator.go",
+      "line": 10,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
       "id": "NewCoordinator__coordinator",
       "name": "NewCoordinator",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/coordinator.go",
-      "line": 9,
+      "line": 16,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -302,7 +318,7 @@
       "name": "Handle",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/coordinator.go",
-      "line": 15,
+      "line": 22,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -328,7 +344,7 @@
       "name": "Evaluate",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/coordinator_test.go",
-      "line": 12,
+      "line": 15,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -341,7 +357,7 @@
       "name": "TestCoordinatorEvaluatesProcessStart",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/coordinator_test.go",
-      "line": 32,
+      "line": 35,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -354,7 +370,33 @@
       "name": "TestCoordinatorIgnoresProcessExit",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/coordinator_test.go",
-      "line": 86,
+      "line": 90,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestCoordinatorCanHandleBusEvents__coordinator_test",
+      "name": "TestCoordinatorCanHandleBusEvents",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/coordinator_test.go",
+      "line": 137,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestCoordinatorUsesCurrentProcessState__coordinator_test",
+      "name": "TestCoordinatorUsesCurrentProcessState",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/coordinator_test.go",
+      "line": 207,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -367,7 +409,7 @@
       "name": "findingCoordinatorRule",
       "type": "class",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/coordinator_test.go",
-      "line": 10,
+      "line": 13,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -1566,18 +1608,24 @@
     {
       "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/coordinator.go",
       "lang": "go",
-      "lines": 28,
+      "lines": 39,
       "entities": [
+        {
+          "name": "UpdateSnapshot",
+          "type": "function",
+          "line": 10,
+          "complexity": "low"
+        },
         {
           "name": "NewCoordinator",
           "type": "function",
-          "line": 9,
+          "line": 16,
           "complexity": "low"
         },
         {
           "name": "Handle",
           "type": "function",
-          "line": 15,
+          "line": 22,
           "complexity": "low"
         },
         {
@@ -1597,6 +1645,7 @@
         }
       ],
       "exports": [
+        "UpdateSnapshot",
         "NewCoordinator",
         "Handle"
       ]
@@ -1604,34 +1653,60 @@
     {
       "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/coordinator_test.go",
       "lang": "go",
-      "lines": 132,
+      "lines": 248,
       "entities": [
         {
           "name": "Evaluate",
           "type": "function",
-          "line": 12,
+          "line": 15,
           "complexity": "low"
         },
         {
           "name": "TestCoordinatorEvaluatesProcessStart",
           "type": "function",
-          "line": 32,
+          "line": 35,
           "complexity": "low"
         },
         {
           "name": "TestCoordinatorIgnoresProcessExit",
           "type": "function",
-          "line": 86,
+          "line": 90,
+          "complexity": "low"
+        },
+        {
+          "name": "TestCoordinatorCanHandleBusEvents",
+          "type": "function",
+          "line": 137,
+          "complexity": "low"
+        },
+        {
+          "name": "TestCoordinatorUsesCurrentProcessState",
+          "type": "function",
+          "line": 207,
           "complexity": "low"
         },
         {
           "name": "findingCoordinatorRule",
           "type": "class",
-          "line": 10,
+          "line": 13,
           "complexity": "low"
         }
       ],
       "imports": [
+        {
+          "source": "context",
+          "names": [
+            "context"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "sync",
+          "names": [
+            "sync"
+          ],
+          "isLocal": false
+        },
         {
           "source": "testing",
           "names": [
@@ -1652,12 +1727,21 @@
             "github.com/arafat2020/sentinel/internal/core"
           ],
           "isLocal": false
+        },
+        {
+          "source": "github.com/arafat2020/sentinel/internal/eventbus",
+          "names": [
+            "github.com/arafat2020/sentinel/internal/eventbus"
+          ],
+          "isLocal": false
         }
       ],
       "exports": [
         "Evaluate",
         "TestCoordinatorEvaluatesProcessStart",
-        "TestCoordinatorIgnoresProcessExit"
+        "TestCoordinatorIgnoresProcessExit",
+        "TestCoordinatorCanHandleBusEvents",
+        "TestCoordinatorUsesCurrentProcessState"
       ]
     },
     {

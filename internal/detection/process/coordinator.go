@@ -3,7 +3,14 @@ package process
 import "github.com/arafat2020/sentinel/internal/core"
 
 type Coordinator struct {
-	engine *Engine
+	engine   *Engine
+	snapshot *core.ProcessSnapshot
+}
+
+func (c *Coordinator) UpdateSnapshot(
+	snapshot *core.ProcessSnapshot,
+) {
+	c.snapshot = snapshot
 }
 
 func NewCoordinator(engine *Engine) *Coordinator {
@@ -18,6 +25,10 @@ func (c *Coordinator) Handle(
 ) []*core.Finding {
 
 	if event.Type != core.EventProcessStart {
+		return nil
+	}
+
+	if c.snapshot == nil {
 		return nil
 	}
 

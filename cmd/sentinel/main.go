@@ -25,20 +25,6 @@ func main() {
 	defer stop()
 
 	bus := eventbus.New(1000)
-	bus.Start(ctx)
-	bus.Subscribe(func(event core.Event) {
-		if event.Process == nil {
-			return
-		}
-
-		fmt.Printf(
-			"[%s] PID=%d NAME=%s EXE=%s\n",
-			event.Type,
-			event.Process.PID,
-			event.Process.Name,
-			event.Process.Executable,
-		)
-	})
 
 	collector := processCollector.NewCollector()
 	detector := processDetector.NewLifecycleDetector()
@@ -52,6 +38,34 @@ func main() {
 	engine := processDetector.NewEngine(registry)
 
 	coordinator := processDetector.NewCoordinator(engine)
+
+	bus.Subscribe(func(event core.Event) {
+		if event.Process == nil {
+			return
+		}
+
+		fmt.Printf(
+			"[%s] PID=%d NAME=%s EXE=%s\n",
+			event.Type,
+			event.Process.PID,
+			event.Process.Name,
+			event.Process.Executable,
+		)
+
+		findings := coordinator.Handle(event)
+
+		for _, finding := range findings {
+			fmt.Printf(
+				"[%s] %s: %s\n",
+				finding.Severity,
+				finding.Title,
+				finding.Description,
+			)
+		}
+	})
+
+	bus.Start(ctx)
+
 	processMonitor := monitor.NewProcessMonitor(
 		collector,
 		detector,

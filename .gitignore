@@ -1,0 +1,27 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor/IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Go build/test artifacts
+bin/
+dist/
+coverage.out
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.cover
+
+# Local temp/cache files
+.cache/
+tmp/
+*.log

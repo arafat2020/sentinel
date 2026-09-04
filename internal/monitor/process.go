@@ -8,21 +8,24 @@ import (
 	processCollector "github.com/arafat2020/sentinel/internal/collector/process"
 	"github.com/arafat2020/sentinel/internal/core"
 	processDetector "github.com/arafat2020/sentinel/internal/detection/process"
+	"github.com/arafat2020/sentinel/internal/eventbus"
 )
 
 type ProcessMonitor struct {
 	collector *processCollector.Collector
 	detector  *processDetector.LifecycleDetector
 	interval  time.Duration
+	bus       *eventbus.Bus
 }
 
 func NewProcessMonitor(collector *processCollector.Collector,
 	detector *processDetector.LifecycleDetector,
-	interval time.Duration) *ProcessMonitor {
+	interval time.Duration, bus *eventbus.Bus) *ProcessMonitor {
 	return &ProcessMonitor{
 		collector: collector,
 		detector:  detector,
 		interval:  interval,
+		bus:       bus,
 	}
 }
 

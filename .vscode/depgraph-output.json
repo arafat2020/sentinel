@@ -1,12 +1,12 @@
 {
   "meta": {
     "version": "1.0.0",
-    "timestamp": "2026-09-03T08:49:20.795Z",
-    "totalFiles": 7,
-    "totalLines": 365
+    "timestamp": "2026-09-04T03:42:39.101Z",
+    "totalFiles": 9,
+    "totalLines": 669
   },
   "summary": {
-    "totalNodes": 19,
+    "totalNodes": 31,
     "totalEdges": 0,
     "entryPoints": [],
     "leafNodes": [],
@@ -25,6 +25,18 @@
       "LifecycleDetector__lifecycle",
       "TestLifecycleDetector__lifecycle_test",
       "TestDetectPIDReuse__lifecycle_test",
+      "New__bus",
+      "Subscribe__bus",
+      "Publish__bus",
+      "Start__bus",
+      "drain__bus",
+      "processEvents__bus",
+      "Bus__bus",
+      "TestBusPublish__bus_test",
+      "TestBusPublishesToMultipleHandlers__bus_test",
+      "TestBusAppliesBackpressure__bus_test",
+      "TestBusDrainsQueuedEventsBeforeShutdown__bus_test",
+      "TestBusRejectsPublishAfterShutdown__bus_test",
       "NewProcessMonitor__process",
       "Run__process",
       "collectAndDetect__process",
@@ -39,7 +51,7 @@
       "name": "main",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/cmd/sentinel/main.go",
-      "line": 15,
+      "line": 19,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -217,11 +229,167 @@
       "connections": []
     },
     {
+      "id": "New__bus",
+      "name": "New",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus.go",
+      "line": 16,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Subscribe__bus",
+      "name": "Subscribe",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus.go",
+      "line": 22,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Publish__bus",
+      "name": "Publish",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus.go",
+      "line": 26,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Start__bus",
+      "name": "Start",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus.go",
+      "line": 31,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "drain__bus",
+      "name": "drain",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus.go",
+      "line": 35,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "processEvents__bus",
+      "name": "processEvents",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus.go",
+      "line": 48,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Bus__bus",
+      "name": "Bus",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus.go",
+      "line": 11,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestBusPublish__bus_test",
+      "name": "TestBusPublish",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus_test.go",
+      "line": 12,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestBusPublishesToMultipleHandlers__bus_test",
+      "name": "TestBusPublishesToMultipleHandlers",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus_test.go",
+      "line": 47,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestBusAppliesBackpressure__bus_test",
+      "name": "TestBusAppliesBackpressure",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus_test.go",
+      "line": 78,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestBusDrainsQueuedEventsBeforeShutdown__bus_test",
+      "name": "TestBusDrainsQueuedEventsBeforeShutdown",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus_test.go",
+      "line": 152,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestBusRejectsPublishAfterShutdown__bus_test",
+      "name": "TestBusRejectsPublishAfterShutdown",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus_test.go",
+      "line": 190,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
       "id": "NewProcessMonitor__process",
       "name": "NewProcessMonitor",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process.go",
-      "line": 19,
+      "line": 21,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -234,7 +402,7 @@
       "name": "Run",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process.go",
-      "line": 29,
+      "line": 32,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -247,7 +415,7 @@
       "name": "collectAndDetect",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process.go",
-      "line": 44,
+      "line": 47,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -260,7 +428,7 @@
       "name": "printEvent",
       "type": "function",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process.go",
-      "line": 57,
+      "line": 60,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -273,7 +441,7 @@
       "name": "ProcessMonitor",
       "type": "class",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process.go",
-      "line": 13,
+      "line": 14,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -287,12 +455,12 @@
     {
       "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/cmd/sentinel/main.go",
       "lang": "go",
-      "lines": 34,
+      "lines": 55,
       "entities": [
         {
           "name": "main",
           "type": "function",
-          "line": 15,
+          "line": 19,
           "complexity": "low"
         }
       ],
@@ -301,6 +469,13 @@
           "source": "context",
           "names": [
             "context"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "fmt",
+          "names": [
+            "fmt"
           ],
           "isLocal": false
         },
@@ -329,6 +504,20 @@
           "source": "time",
           "names": [
             "time"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "github.com/arafat2020/sentinel/internal/core",
+          "names": [
+            "github.com/arafat2020/sentinel/internal/core"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "github.com/arafat2020/sentinel/internal/eventbus",
+          "names": [
+            "github.com/arafat2020/sentinel/internal/eventbus"
           ],
           "isLocal": false
         },
@@ -573,38 +762,190 @@
       ]
     },
     {
+      "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus.go",
+      "lang": "go",
+      "lines": 62,
+      "entities": [
+        {
+          "name": "New",
+          "type": "function",
+          "line": 16,
+          "complexity": "low"
+        },
+        {
+          "name": "Subscribe",
+          "type": "function",
+          "line": 22,
+          "complexity": "low"
+        },
+        {
+          "name": "Publish",
+          "type": "function",
+          "line": 26,
+          "complexity": "low"
+        },
+        {
+          "name": "Start",
+          "type": "function",
+          "line": 31,
+          "complexity": "low"
+        },
+        {
+          "name": "drain",
+          "type": "function",
+          "line": 35,
+          "complexity": "low"
+        },
+        {
+          "name": "processEvents",
+          "type": "function",
+          "line": 48,
+          "complexity": "low"
+        },
+        {
+          "name": "Bus",
+          "type": "class",
+          "line": 11,
+          "complexity": "low"
+        }
+      ],
+      "imports": [
+        {
+          "source": "context",
+          "names": [
+            "context"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "github.com/arafat2020/sentinel/internal/core",
+          "names": [
+            "github.com/arafat2020/sentinel/internal/core"
+          ],
+          "isLocal": false
+        }
+      ],
+      "exports": [
+        "New",
+        "Subscribe",
+        "Publish",
+        "Start"
+      ]
+    },
+    {
+      "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/eventbus/bus_test.go",
+      "lang": "go",
+      "lines": 218,
+      "entities": [
+        {
+          "name": "TestBusPublish",
+          "type": "function",
+          "line": 12,
+          "complexity": "low"
+        },
+        {
+          "name": "TestBusPublishesToMultipleHandlers",
+          "type": "function",
+          "line": 47,
+          "complexity": "low"
+        },
+        {
+          "name": "TestBusAppliesBackpressure",
+          "type": "function",
+          "line": 78,
+          "complexity": "low"
+        },
+        {
+          "name": "TestBusDrainsQueuedEventsBeforeShutdown",
+          "type": "function",
+          "line": 152,
+          "complexity": "low"
+        },
+        {
+          "name": "TestBusRejectsPublishAfterShutdown",
+          "type": "function",
+          "line": 190,
+          "complexity": "low"
+        }
+      ],
+      "imports": [
+        {
+          "source": "context",
+          "names": [
+            "context"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "sync",
+          "names": [
+            "sync"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "testing",
+          "names": [
+            "testing"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "time",
+          "names": [
+            "time"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "github.com/arafat2020/sentinel/internal/core",
+          "names": [
+            "github.com/arafat2020/sentinel/internal/core"
+          ],
+          "isLocal": false
+        }
+      ],
+      "exports": [
+        "TestBusPublish",
+        "TestBusPublishesToMultipleHandlers",
+        "TestBusAppliesBackpressure",
+        "TestBusDrainsQueuedEventsBeforeShutdown",
+        "TestBusRejectsPublishAfterShutdown"
+      ]
+    },
+    {
       "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/monitor/process.go",
       "lang": "go",
-      "lines": 70,
+      "lines": 73,
       "entities": [
         {
           "name": "NewProcessMonitor",
           "type": "function",
-          "line": 19,
+          "line": 21,
           "complexity": "low"
         },
         {
           "name": "Run",
           "type": "function",
-          "line": 29,
+          "line": 32,
           "complexity": "low"
         },
         {
           "name": "collectAndDetect",
           "type": "function",
-          "line": 44,
+          "line": 47,
           "complexity": "low"
         },
         {
           "name": "printEvent",
           "type": "function",
-          "line": 57,
+          "line": 60,
           "complexity": "low"
         },
         {
           "name": "ProcessMonitor",
           "type": "class",
-          "line": 13,
+          "line": 14,
           "complexity": "low"
         }
       ],
@@ -648,6 +989,13 @@
           "source": "github.com/arafat2020/sentinel/internal/detection/process",
           "names": [
             "github.com/arafat2020/sentinel/internal/detection/process"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "github.com/arafat2020/sentinel/internal/eventbus",
+          "names": [
+            "github.com/arafat2020/sentinel/internal/eventbus"
           ],
           "isLocal": false
         }

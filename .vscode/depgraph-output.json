@@ -1,12 +1,12 @@
 {
   "meta": {
     "version": "1.0.0",
-    "timestamp": "2026-09-04T09:11:53.462Z",
-    "totalFiles": 21,
-    "totalLines": 1934
+    "timestamp": "2026-09-04T09:54:05.935Z",
+    "totalFiles": 22,
+    "totalLines": 2031
   },
   "summary": {
-    "totalNodes": 85,
+    "totalNodes": 87,
     "totalEdges": 0,
     "entryPoints": [],
     "leafNodes": [],
@@ -25,6 +25,13 @@
       "ProcessIdentity__process",
       "Process__process",
       "ProcessSnapshot__process",
+      "NewCoordinator__coordinator",
+      "Handle__coordinator",
+      "Coordinator__coordinator",
+      "Evaluate__coordinator_test",
+      "TestCoordinatorEvaluatesProcessStart__coordinator_test",
+      "TestCoordinatorIgnoresProcessExit__coordinator_test",
+      "findingCoordinatorRule__coordinator_test",
       "NewEngine__engine",
       "Evaluate__engine",
       "Engine__engine",
@@ -46,11 +53,6 @@
       "Register__registry",
       "Rules__registry",
       "Registry__registry",
-      "Evaluate__registry_test",
-      "TestRegistryStartsEmpty__registry_test",
-      "TestRegistryRegistersRule__registry_test",
-      "TestRegistryRegistersMultipleRules__registry_test",
-      "mockRule__registry_test",
       "NewSuspiciousChildProcessRule__rule",
       "Evaluate__rule",
       "SuspiciousChildProcessRule__rule",
@@ -275,6 +277,97 @@
       "type": "class",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/core/process.go",
       "line": 27,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "NewCoordinator__coordinator",
+      "name": "NewCoordinator",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/coordinator.go",
+      "line": 9,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Handle__coordinator",
+      "name": "Handle",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/coordinator.go",
+      "line": 15,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Coordinator__coordinator",
+      "name": "Coordinator",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/coordinator.go",
+      "line": 5,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "Evaluate__coordinator_test",
+      "name": "Evaluate",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/coordinator_test.go",
+      "line": 12,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestCoordinatorEvaluatesProcessStart__coordinator_test",
+      "name": "TestCoordinatorEvaluatesProcessStart",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/coordinator_test.go",
+      "line": 32,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "TestCoordinatorIgnoresProcessExit__coordinator_test",
+      "name": "TestCoordinatorIgnoresProcessExit",
+      "type": "function",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/coordinator_test.go",
+      "line": 86,
+      "lang": "go",
+      "complexity": "low",
+      "inDegree": 0,
+      "outDegree": 0,
+      "centralityScore": 0,
+      "connections": []
+    },
+    {
+      "id": "findingCoordinatorRule__coordinator_test",
+      "name": "findingCoordinatorRule",
+      "type": "class",
+      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/coordinator_test.go",
+      "line": 10,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -548,71 +641,6 @@
       "type": "class",
       "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/registry.go",
       "line": 3,
-      "lang": "go",
-      "complexity": "low",
-      "inDegree": 0,
-      "outDegree": 0,
-      "centralityScore": 0,
-      "connections": []
-    },
-    {
-      "id": "Evaluate__registry_test",
-      "name": "Evaluate",
-      "type": "function",
-      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/registry_test.go",
-      "line": 11,
-      "lang": "go",
-      "complexity": "low",
-      "inDegree": 0,
-      "outDegree": 0,
-      "centralityScore": 0,
-      "connections": []
-    },
-    {
-      "id": "TestRegistryStartsEmpty__registry_test",
-      "name": "TestRegistryStartsEmpty",
-      "type": "function",
-      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/registry_test.go",
-      "line": 18,
-      "lang": "go",
-      "complexity": "low",
-      "inDegree": 0,
-      "outDegree": 0,
-      "centralityScore": 0,
-      "connections": []
-    },
-    {
-      "id": "TestRegistryRegistersRule__registry_test",
-      "name": "TestRegistryRegistersRule",
-      "type": "function",
-      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/registry_test.go",
-      "line": 29,
-      "lang": "go",
-      "complexity": "low",
-      "inDegree": 0,
-      "outDegree": 0,
-      "centralityScore": 0,
-      "connections": []
-    },
-    {
-      "id": "TestRegistryRegistersMultipleRules__registry_test",
-      "name": "TestRegistryRegistersMultipleRules",
-      "type": "function",
-      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/registry_test.go",
-      "line": 45,
-      "lang": "go",
-      "complexity": "low",
-      "inDegree": 0,
-      "outDegree": 0,
-      "centralityScore": 0,
-      "connections": []
-    },
-    {
-      "id": "mockRule__registry_test",
-      "name": "mockRule",
-      "type": "class",
-      "file": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/registry_test.go",
-      "line": 9,
       "lang": "go",
       "complexity": "low",
       "inDegree": 0,
@@ -1536,6 +1564,103 @@
       ]
     },
     {
+      "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/coordinator.go",
+      "lang": "go",
+      "lines": 28,
+      "entities": [
+        {
+          "name": "NewCoordinator",
+          "type": "function",
+          "line": 9,
+          "complexity": "low"
+        },
+        {
+          "name": "Handle",
+          "type": "function",
+          "line": 15,
+          "complexity": "low"
+        },
+        {
+          "name": "Coordinator",
+          "type": "class",
+          "line": 5,
+          "complexity": "low"
+        }
+      ],
+      "imports": [
+        {
+          "source": "github.com/arafat2020/sentinel/internal/core",
+          "names": [
+            "github.com/arafat2020/sentinel/internal/core"
+          ],
+          "isLocal": false
+        }
+      ],
+      "exports": [
+        "NewCoordinator",
+        "Handle"
+      ]
+    },
+    {
+      "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/coordinator_test.go",
+      "lang": "go",
+      "lines": 132,
+      "entities": [
+        {
+          "name": "Evaluate",
+          "type": "function",
+          "line": 12,
+          "complexity": "low"
+        },
+        {
+          "name": "TestCoordinatorEvaluatesProcessStart",
+          "type": "function",
+          "line": 32,
+          "complexity": "low"
+        },
+        {
+          "name": "TestCoordinatorIgnoresProcessExit",
+          "type": "function",
+          "line": 86,
+          "complexity": "low"
+        },
+        {
+          "name": "findingCoordinatorRule",
+          "type": "class",
+          "line": 10,
+          "complexity": "low"
+        }
+      ],
+      "imports": [
+        {
+          "source": "testing",
+          "names": [
+            "testing"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "time",
+          "names": [
+            "time"
+          ],
+          "isLocal": false
+        },
+        {
+          "source": "github.com/arafat2020/sentinel/internal/core",
+          "names": [
+            "github.com/arafat2020/sentinel/internal/core"
+          ],
+          "isLocal": false
+        }
+      ],
+      "exports": [
+        "Evaluate",
+        "TestCoordinatorEvaluatesProcessStart",
+        "TestCoordinatorIgnoresProcessExit"
+      ]
+    },
+    {
       "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/engine.go",
       "lang": "go",
       "lines": 33,
@@ -1790,65 +1915,6 @@
         "NewRegistry",
         "Register",
         "Rules"
-      ]
-    },
-    {
-      "filePath": "/Users/betopia/Desktop/Arafat/go/sentinel/internal/detection/process/registry_test.go",
-      "lang": "go",
-      "lines": 63,
-      "entities": [
-        {
-          "name": "Evaluate",
-          "type": "function",
-          "line": 11,
-          "complexity": "low"
-        },
-        {
-          "name": "TestRegistryStartsEmpty",
-          "type": "function",
-          "line": 18,
-          "complexity": "low"
-        },
-        {
-          "name": "TestRegistryRegistersRule",
-          "type": "function",
-          "line": 29,
-          "complexity": "low"
-        },
-        {
-          "name": "TestRegistryRegistersMultipleRules",
-          "type": "function",
-          "line": 45,
-          "complexity": "low"
-        },
-        {
-          "name": "mockRule",
-          "type": "class",
-          "line": 9,
-          "complexity": "low"
-        }
-      ],
-      "imports": [
-        {
-          "source": "testing",
-          "names": [
-            "testing"
-          ],
-          "isLocal": false
-        },
-        {
-          "source": "github.com/arafat2020/sentinel/internal/core",
-          "names": [
-            "github.com/arafat2020/sentinel/internal/core"
-          ],
-          "isLocal": false
-        }
-      ],
-      "exports": [
-        "Evaluate",
-        "TestRegistryStartsEmpty",
-        "TestRegistryRegistersRule",
-        "TestRegistryRegistersMultipleRules"
       ]
     },
     {

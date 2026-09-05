@@ -16,7 +16,31 @@ func NewCollector() *Collector {
 	return &Collector{}
 }
 
-func (c *Collector) Collect(ctx context.Context) (*core.ProcessSnapshot, error) {
+func buildProcess(
+	p *gopsprocess.Process,
+	ctx context.Context,
+) core.Process {
+	name, _ := p.NameWithContext(ctx)
+	exe, _ := p.ExeWithContext(ctx)
+	cmdline, _ := p.CmdlineWithContext(ctx)
+	ppid, _ := p.PpidWithContext(ctx)
+	startTime, _ := p.CreateTimeWithContext(ctx)
+	username, _ := p.UsernameWithContext(ctx)
+
+	return core.Process{
+		PID:         p.Pid,
+		PPID:        ppid,
+		StartTime:   time.UnixMilli(startTime),
+		Name:        name,
+		Executable:  exe,
+		CommandLine: cmdline,
+		User:        username,
+	}
+}
+
+func (c *Collector) Collect(
+	ctx context.Context,
+) (*core.ProcessSnapshot, error) {
 	processes, err := gopsprocess.ProcessesWithContext(ctx)
 	if err != nil {
 		return nil, err
@@ -27,23 +51,9 @@ func (c *Collector) Collect(ctx context.Context) (*core.ProcessSnapshot, error) 
 	}
 
 	for _, p := range processes {
-		name, _ := p.NameWithContext(ctx)
-		exe, _ := p.ExeWithContext(ctx)
-		cmdline, _ := p.CmdlineWithContext(ctx)
-		ppid, _ := p.PpidWithContext(ctx)
-		startTime, _ := p.CreateTimeWithContext(ctx)
-		process := core.Process{
-			PID:         p.Pid,
-			PPID:        ppid,
-			StartTime:   time.UnixMilli(startTime),
-			Name:        name,
-			Executable:  exe,
-			CommandLine: cmdline,
-		}
-
 		snapshot.Processes = append(
 			snapshot.Processes,
-			process,
+			buildProcess(p, ctx),
 		)
 	}
 

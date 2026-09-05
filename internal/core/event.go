@@ -5,21 +5,18 @@ import "time"
 type EventType string
 
 const (
-	EventProcessStart    EventType = "PROCESS_START"
-	EventProcessExit     EventType = "PROCESS_EXIT"
-	EventProcessSnapshot EventType = "PROCESS_SNAPSHOT"
-	EventNetworkConnect  EventType = "NETWORK_CONNECT"
-
-	EventFileCreate EventType = "FILE_CREATE"
-	EventFileModify EventType = "FILE_MODIFY"
-	EventFileDelete EventType = "FILE_DELETE"
-	EventFileRename EventType = "FILE_RENAME"
-
+	EventProcessStart      EventType = "PROCESS_START"
+	EventProcessExit       EventType = "PROCESS_EXIT"
+	EventProcessSnapshot   EventType = "PROCESS_SNAPSHOT"
+	EventNetworkConnect    EventType = "NETWORK_CONNECT"
+	EventNetworkClose      EventType = "NETWORK_CLOSE"
+	EventFileCreate        EventType = "FILE_CREATE"
+	EventFileModify        EventType = "FILE_MODIFY"
+	EventFileDelete        EventType = "FILE_DELETE"
+	EventFileRename        EventType = "FILE_RENAME"
 	EventPersistenceChange EventType = "PERSISTENCE_CHANGE"
-
-	EventDNSQuery EventType = "DNS_QUERY"
-
-	EventScriptExecution EventType = "SCRIPT_EXECUTION"
+	EventDNSQuery          EventType = "DNS_QUERY"
+	EventScriptExecution   EventType = "SCRIPT_EXECUTION"
 )
 
 type Event struct {
@@ -31,6 +28,8 @@ type Event struct {
 	OS     string
 
 	Process *Process
+
+	Network *NetworkConnection
 
 	Metadata map[string]any
 }

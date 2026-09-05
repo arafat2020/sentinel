@@ -12,7 +12,9 @@ import (
 	"github.com/arafat2020/sentinel/internal/eventbus"
 	"github.com/arafat2020/sentinel/internal/finding"
 
+	networkcollector "github.com/arafat2020/sentinel/internal/collector/network"
 	processCollector "github.com/arafat2020/sentinel/internal/collector/process"
+	networkdetector "github.com/arafat2020/sentinel/internal/detection/network"
 	processDetector "github.com/arafat2020/sentinel/internal/detection/process"
 	"github.com/arafat2020/sentinel/internal/monitor"
 )
@@ -59,6 +61,21 @@ func main() {
 	})
 
 	bus.Subscribe(func(event core.Event) {
+		if event.Type == core.EventNetworkConnect ||
+			event.Type == core.EventNetworkClose {
+			fmt.Printf(
+				"[%s] PID=%d PROTOCOL=%s REMOTE=%s:%d STATE=%s\n",
+				event.Type,
+				event.Network.PID,
+				event.Network.Protocol,
+				event.Network.RemoteAddress,
+				event.Network.RemotePort,
+				event.Network.State,
+			)
+		}
+	})
+
+	bus.Subscribe(func(event core.Event) {
 		coordinator.Handle(event)
 	})
 
@@ -72,5 +89,18 @@ func main() {
 		coordinator,
 	)
 
-	processMonitor.Run(ctx)
+	networkCollector := networkcollector.NewCollector()
+	networkDetector := networkdetector.NewLifecycleDetector()
+
+	networkMonitor := monitor.NewNetworkMonitor(
+		networkCollector,
+		networkDetector,
+		2*time.Second,
+		bus,
+	)
+
+	go processMonitor.Run(ctx)
+	go networkMonitor.Run(ctx)
+
+	<-ctx.Done()
 }

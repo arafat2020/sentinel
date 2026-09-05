@@ -10,6 +10,7 @@ import (
 
 	"github.com/arafat2020/sentinel/internal/core"
 	"github.com/arafat2020/sentinel/internal/eventbus"
+	"github.com/arafat2020/sentinel/internal/finding"
 
 	processCollector "github.com/arafat2020/sentinel/internal/collector/process"
 	processDetector "github.com/arafat2020/sentinel/internal/detection/process"
@@ -30,14 +31,18 @@ func main() {
 	detector := processDetector.NewLifecycleDetector()
 
 	registry := processDetector.NewRegistry()
-
 	registry.Register(
 		processDetector.NewSuspiciousChildProcessRule(),
 	)
 
 	engine := processDetector.NewEngine(registry)
 
-	coordinator := processDetector.NewCoordinator(engine)
+	sink := finding.NewConsoleSink()
+
+	coordinator := processDetector.NewCoordinator(
+		engine,
+		sink,
+	)
 
 	bus.Subscribe(func(event core.Event) {
 		if event.Process == nil {
@@ -51,17 +56,10 @@ func main() {
 			event.Process.Name,
 			event.Process.Executable,
 		)
+	})
 
-		findings := coordinator.Handle(event)
-
-		for _, finding := range findings {
-			fmt.Printf(
-				"[%s] %s: %s\n",
-				finding.Severity,
-				finding.Title,
-				finding.Description,
-			)
-		}
+	bus.Subscribe(func(event core.Event) {
+		coordinator.Handle(event)
 	})
 
 	bus.Start(ctx)

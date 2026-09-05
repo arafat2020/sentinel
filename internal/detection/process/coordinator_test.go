@@ -12,6 +12,16 @@ import (
 
 type findingCoordinatorRule struct{}
 
+type fakeFindingSink struct {
+	findings []*core.Finding
+}
+
+func (s *fakeFindingSink) Handle(
+	finding *core.Finding,
+) {
+	s.findings = append(s.findings, finding)
+}
+
 func (r *findingCoordinatorRule) Evaluate(
 	ctx *RuleContext,
 	identity core.ProcessIdentity,
@@ -39,7 +49,9 @@ func TestCoordinatorEvaluatesProcessStart(t *testing.T) {
 
 	engine := NewEngine(registry)
 
-	coordinator := NewCoordinator(engine)
+	sink := &fakeFindingSink{}
+
+	coordinator := NewCoordinator(engine, sink)
 
 	parent := core.Process{
 		PID:       100,
@@ -94,7 +106,8 @@ func TestCoordinatorIgnoresProcessExit(t *testing.T) {
 
 	engine := NewEngine(registry)
 
-	coordinator := NewCoordinator(engine)
+	sink := &fakeFindingSink{}
+	coordinator := NewCoordinator(engine, sink)
 
 	parent := core.Process{
 		PID:       100,
@@ -139,7 +152,8 @@ func TestCoordinatorCanHandleBusEvents(t *testing.T) {
 	registry.Register(&findingCoordinatorRule{})
 
 	engine := NewEngine(registry)
-	coordinator := NewCoordinator(engine)
+	sink := &fakeFindingSink{}
+	coordinator := NewCoordinator(engine, sink)
 
 	bus := eventbus.New(1)
 
@@ -208,7 +222,8 @@ func TestCoordinatorUsesCurrentProcessState(t *testing.T) {
 	registry.Register(&findingCoordinatorRule{})
 
 	engine := NewEngine(registry)
-	coordinator := NewCoordinator(engine)
+	sink := &fakeFindingSink{}
+	coordinator := NewCoordinator(engine, sink)
 
 	snapshot := &core.ProcessSnapshot{
 		Processes: []core.Process{
@@ -241,6 +256,68 @@ func TestCoordinatorUsesCurrentProcessState(t *testing.T) {
 		t.Fatalf(
 			"expected 1 finding, got %d",
 			len(findings),
+		)
+	}
+}
+
+func TestCoordinatorSendsFindingsToSink(t *testing.T) {
+	sink := &fakeFindingSink{}
+
+	registry := NewRegistry()
+	registry.Register(NewSuspiciousChildProcessRule())
+
+	engine := NewEngine(registry)
+	coordinator := NewCoordinator(engine, sink)
+
+	snapshot := &core.ProcessSnapshot{
+		Processes: []core.Process{
+			{
+				PID:  100,
+				Name: "node",
+			},
+			{
+				PID:  101,
+				PPID: 100,
+				Name: "python",
+			},
+		},
+	}
+
+	coordinator.UpdateSnapshot(snapshot)
+
+	event := core.Event{
+		Type: core.EventProcessStart,
+	}
+
+	findings := coordinator.Handle(event)
+
+	if len(findings) != 1 {
+		t.Fatalf(
+			"expected 1 finding, got %d",
+			len(findings),
+		)
+	}
+
+	if len(sink.findings) != 1 {
+		t.Fatalf(
+			"expected sink to receive 1 finding, got %d",
+			len(sink.findings),
+		)
+	}
+
+	if sink.findings[0] == nil {
+		t.Fatal("sink received nil finding")
+	}
+
+	if findings[0] == nil {
+		t.Fatal("coordinator returned nil finding")
+	}
+
+	if sink.findings[0].ID != findings[0].ID {
+		t.Fatalf(
+			"sink received finding ID %q, coordinator returned %q",
+			sink.findings[0].ID,
+			findings[0].ID,
 		)
 	}
 }

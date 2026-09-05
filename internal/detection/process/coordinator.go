@@ -1,10 +1,14 @@
 package process
 
-import "github.com/arafat2020/sentinel/internal/core"
+import (
+	"github.com/arafat2020/sentinel/internal/core"
+	"github.com/arafat2020/sentinel/internal/finding"
+)
 
 type Coordinator struct {
 	engine   *Engine
 	snapshot *core.ProcessSnapshot
+	sink     finding.Sink
 }
 
 func (c *Coordinator) UpdateSnapshot(
@@ -13,9 +17,13 @@ func (c *Coordinator) UpdateSnapshot(
 	c.snapshot = snapshot
 }
 
-func NewCoordinator(engine *Engine) *Coordinator {
+func NewCoordinator(
+	engine *Engine,
+	sink finding.Sink,
+) *Coordinator {
 	return &Coordinator{
 		engine: engine,
+		sink:   sink,
 	}
 }
 
@@ -32,5 +40,11 @@ func (c *Coordinator) Handle(
 
 	tree := NewProcessTree(c.snapshot)
 
-	return c.engine.Evaluate(tree)
+	findings := c.engine.Evaluate(tree)
+
+	for _, finding := range findings {
+		c.sink.Handle(finding)
+	}
+
+	return findings
 }

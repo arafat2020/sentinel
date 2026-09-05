@@ -12,6 +12,13 @@ import (
 
 type fakeCoordinator struct{}
 
+type fakeFindingSink struct{}
+
+func (f *fakeFindingSink) Handle(
+	finding *core.Finding,
+) {
+}
+
 func (f *fakeCoordinator) UpdateSnapshot(
 	snapshot *core.ProcessSnapshot,
 ) {
@@ -119,7 +126,12 @@ func TestProcessMonitorUpdatesCoordinatorBeforePublishing(t *testing.T) {
 	registry.Register(processDetector.NewSuspiciousChildProcessRule())
 
 	engine := processDetector.NewEngine(registry)
-	coordinator := processDetector.NewCoordinator(engine)
+	sink := &fakeFindingSink{}
+
+	coordinator := processDetector.NewCoordinator(
+		engine,
+		sink,
+	)
 
 	findingsReceived := make(chan []*core.Finding, 1)
 

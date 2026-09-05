@@ -5,12 +5,19 @@ import (
 
 	"time"
 
-	gopsprocess "github.com/shirou/gopsutil/v3/process"
+	gopsprocess "github.com/shirou/gopsutil/v4/process"
 
 	"github.com/arafat2020/sentinel/internal/core"
 )
 
 type Collector struct{}
+
+type processMetadata struct {
+	Name        string
+	Executable  string
+	CommandLine string
+	User        string
+}
 
 func NewCollector() *Collector {
 	return &Collector{}

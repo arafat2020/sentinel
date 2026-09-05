@@ -1,56 +1,37 @@
 package process
 
 import (
+	"context"
+	"os"
 	"testing"
 	"time"
 
-	"github.com/arafat2020/sentinel/internal/core"
+	gopsprocess "github.com/shirou/gopsutil/v4/process"
 )
 
-func TestProcessConversionPreservesMetadata(t *testing.T) {
-	startTime := time.Unix(1000, 0)
+func TestBuildProcessCurrentProcess(t *testing.T) {
+	ctx := context.Background()
 
-	process := core.Process{
-		PID:         123,
-		PPID:        100,
-		StartTime:   startTime,
-		Name:        "python",
-		Executable:  "/usr/bin/python3",
-		CommandLine: "python3 -c test",
-		User:        "test-user",
+	p, err := gopsprocess.NewProcess(int32(os.Getpid()))
+	if err != nil {
+		t.Fatalf("failed to create process: %v", err)
 	}
 
-	if process.PID != 123 {
-		t.Fatalf("expected PID 123, got %d", process.PID)
+	process := buildProcess(p, ctx)
+
+	if process.PID != p.Pid {
+		t.Fatalf("expected PID %d, got %d", p.Pid, process.PID)
 	}
 
-	if process.PPID != 100 {
-		t.Fatalf("expected PPID 100, got %d", process.PPID)
+	if process.Name == "" {
+		t.Fatal("expected process name")
 	}
 
-	if process.Name != "python" {
-		t.Fatalf("expected name python, got %q", process.Name)
+	if process.StartTime.IsZero() {
+		t.Fatal("expected process start time")
 	}
 
-	if process.Executable != "/usr/bin/python3" {
-		t.Fatalf(
-			"expected executable /usr/bin/python3, got %q",
-			process.Executable,
-		)
-	}
-
-	if process.CommandLine != "python3 -c test" {
-		t.Fatalf(
-			"expected command line %q, got %q",
-			"python3 -c test",
-			process.CommandLine,
-		)
-	}
-
-	if process.User != "test-user" {
-		t.Fatalf(
-			"expected user test-user, got %q",
-			process.User,
-		)
+	if process.StartTime.After(time.Now()) {
+		t.Fatal("process start time cannot be in the future")
 	}
 }

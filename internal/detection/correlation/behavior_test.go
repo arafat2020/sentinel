@@ -83,3 +83,168 @@ func TestEngineDetectsNetworkActiveParentSpawningNetworkActivePython(t *testing.
 		t.Fatal("expected finding description")
 	}
 }
+
+func TestEngineDoesNotDetectWithoutParentNetworkActivity(t *testing.T) {
+	now := time.Now()
+
+	parent := core.Process{
+		PID:       100,
+		StartTime: now,
+		Name:      "node",
+	}
+
+	child := core.Process{
+		PID:       200,
+		PPID:      100,
+		StartTime: now.Add(time.Second),
+		Name:      "python",
+	}
+
+	engine := NewEngine(30 * time.Second)
+
+	engine.Process(core.Event{
+		Type:      core.EventProcessStart,
+		Timestamp: now,
+		Process:   &parent,
+	})
+
+	engine.Process(core.Event{
+		Type:      core.EventProcessStart,
+		Timestamp: now.Add(time.Second),
+		Process:   &child,
+	})
+
+	engine.Process(core.Event{
+		Type:      core.EventNetworkConnect,
+		Timestamp: now.Add(2 * time.Second),
+		Process:   &child,
+	})
+
+	findings := engine.DetectBehaviors()
+
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestEngineDoesNotDetectWithoutPythonNetworkActivity(t *testing.T) {
+	now := time.Now()
+
+	parent := core.Process{
+		PID:       100,
+		StartTime: now,
+		Name:      "node",
+	}
+
+	child := core.Process{
+		PID:       200,
+		PPID:      100,
+		StartTime: now.Add(time.Second),
+		Name:      "python",
+	}
+
+	engine := NewEngine(30 * time.Second)
+
+	engine.Process(core.Event{
+		Type:      core.EventProcessStart,
+		Timestamp: now,
+		Process:   &parent,
+	})
+
+	engine.Process(core.Event{
+		Type:      core.EventNetworkConnect,
+		Timestamp: now.Add(time.Second),
+		Process:   &parent,
+	})
+
+	engine.Process(core.Event{
+		Type:      core.EventProcessStart,
+		Timestamp: now.Add(2 * time.Second),
+		Process:   &child,
+	})
+
+	findings := engine.DetectBehaviors()
+
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestEngineDoesNotDetectDifferentChildProcess(t *testing.T) {
+	now := time.Now()
+
+	parent := core.Process{
+		PID:       100,
+		StartTime: now,
+		Name:      "node",
+	}
+
+	child := core.Process{
+		PID:       200,
+		PPID:      100,
+		StartTime: now.Add(time.Second),
+		Name:      "bash",
+	}
+
+	engine := NewEngine(30 * time.Second)
+
+	engine.Process(core.Event{
+		Type:      core.EventProcessStart,
+		Timestamp: now,
+		Process:   &parent,
+	})
+
+	engine.Process(core.Event{
+		Type:      core.EventNetworkConnect,
+		Timestamp: now.Add(time.Second),
+		Process:   &parent,
+	})
+
+	engine.Process(core.Event{
+		Type:      core.EventProcessStart,
+		Timestamp: now.Add(2 * time.Second),
+		Process:   &child,
+	})
+
+	engine.Process(core.Event{
+		Type:      core.EventNetworkConnect,
+		Timestamp: now.Add(3 * time.Second),
+		Process:   &child,
+	})
+
+	findings := engine.DetectBehaviors()
+
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestEngineDoesNotDetectWithoutPythonChild(t *testing.T) {
+	now := time.Now()
+
+	parent := core.Process{
+		PID:       100,
+		StartTime: now,
+		Name:      "node",
+	}
+
+	engine := NewEngine(30 * time.Second)
+
+	engine.Process(core.Event{
+		Type:      core.EventProcessStart,
+		Timestamp: now,
+		Process:   &parent,
+	})
+
+	engine.Process(core.Event{
+		Type:      core.EventNetworkConnect,
+		Timestamp: now.Add(time.Second),
+		Process:   &parent,
+	})
+
+	findings := engine.DetectBehaviors()
+
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}

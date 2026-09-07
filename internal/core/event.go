@@ -32,4 +32,5 @@ type Event struct {
 	Network *NetworkConnection
 
 	Metadata map[string]any
+	DNS      *DNSQuery
 }

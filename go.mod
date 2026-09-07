@@ -2,7 +2,10 @@ module github.com/arafat2020/sentinel
 
 go 1.25.5
 
-require github.com/shirou/gopsutil/v4 v4.26.8
+require (
+	github.com/google/gopacket v1.1.19
+	github.com/shirou/gopsutil/v4 v4.26.8
+)
 
 require (
 	github.com/ebitengine/purego v0.10.2 // indirect

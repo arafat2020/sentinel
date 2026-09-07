@@ -12,6 +12,8 @@ type Engine struct {
 	relationships map[core.ProcessIdentity][]ProcessRelationship
 	processes     map[int32]core.Process
 	window        time.Duration
+	patterns      []BehaviorPattern
+	matcher       *Matcher
 }
 
 func NewEngine(window time.Duration) *Engine {
@@ -21,6 +23,8 @@ func NewEngine(window time.Duration) *Engine {
 		relationships: make(map[core.ProcessIdentity][]ProcessRelationship),
 		processes:     make(map[int32]core.Process),
 		window:        window,
+		patterns:      DefaultPatterns(),
+		matcher:       NewMatcher(),
 	}
 }
 
@@ -102,41 +106,36 @@ func hasNetworkActivity(chains []*Chain) bool {
 func (e *Engine) DetectBehaviors() []core.Finding {
 	var findings []core.Finding
 
-	for childIdentity, relationships := range e.relationships {
-		childChains := e.chains[childIdentity]
+	relationships := e.allRelationships()
 
-		for _, relationship := range relationships {
-			if relationship.Child.Name != "python" {
-				continue
-			}
-
-			parentChains := e.chains[relationship.Parent.Identity()]
-
-			if !hasNetworkActivity(parentChains) {
-				continue
-			}
-
-			if !hasNetworkActivity(childChains) {
-				continue
-			}
-
-			findings = append(findings, core.Finding{
-				ID:        "network-active-parent-spawns-python",
-				Timestamp: time.Now(),
-				Severity:  core.SeverityMedium,
-				Rule:      "network-active-parent-spawns-python",
-				Title:     "Network-active process spawned Python",
-				Description: "A process with network activity spawned Python, " +
-					"which subsequently established a network connection.",
-				Evidence: core.Evidence{
-					Processes: []core.Process{
-						relationship.Parent,
-						relationship.Child,
-					},
-				},
-			})
+	for _, pattern := range e.patterns {
+		if !e.matcher.MatchPattern(
+			pattern,
+			relationships,
+			e.chains,
+		) {
+			continue
 		}
+
+		findings = append(findings, core.Finding{
+			Rule:        pattern.Name,
+			Severity:    pattern.Severity,
+			Title:       pattern.Title,
+			Description: pattern.Description,
+		})
 	}
 
 	return findings
+}
+func (e *Engine) allRelationships() []ProcessRelationship {
+	var relationships []ProcessRelationship
+
+	for _, processRelationships := range e.relationships {
+		relationships = append(
+			relationships,
+			processRelationships...,
+		)
+	}
+
+	return relationships
 }

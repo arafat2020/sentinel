@@ -100,7 +100,6 @@ func (l *darwinSocketLookup) FindOwner(
 	}
 
 	targetIP := net.ParseIP(sourceIP)
-
 	if targetIP == nil {
 		return nil, fmt.Errorf(
 			"invalid source IP: %s",
@@ -109,15 +108,9 @@ func (l *darwinSocketLookup) FindOwner(
 	}
 
 	pids, err := listPIDs()
-
 	if err != nil {
 		return nil, err
 	}
-
-	fmt.Printf(
-		"FindOwner: found %d PIDs\n",
-		len(pids),
-	)
 
 	for _, pid := range pids {
 		if err := ctx.Err(); err != nil {
@@ -129,7 +122,6 @@ func (l *darwinSocketLookup) FindOwner(
 			targetIP,
 			sourcePort,
 		)
-
 		if err != nil {
 			continue
 		}
@@ -186,8 +178,7 @@ func findSocketInProcess(
 	targetIP net.IP,
 	targetPort uint32,
 ) (*SocketOwner, bool, error) {
-	// First call tells us how many BYTES are needed
-	// for the FD information.
+	// First call tells us how many BYTES are needed for the FD information.
 	size := C.proc_pidinfo(
 		C.int(pid),
 		C.PROC_PIDLISTFDS,
@@ -200,22 +191,9 @@ func findSocketInProcess(
 		return nil, false, nil
 	}
 
-	fmt.Printf(
-		"PID %d: proc_pidinfo reported %d bytes\n",
-		pid,
-		int(size),
-	)
-
 	fdSize := int(C.sizeof_struct_proc_fdinfo)
-
 	// proc_pidinfo returns bytes, so convert bytes → number of FDs.
 	fdCount := int(size) / fdSize
-
-	fmt.Printf(
-		"PID %d: expecting %d FDs\n",
-		pid,
-		fdCount,
-	)
 
 	fds := make(
 		[]C.struct_proc_fdinfo,
@@ -241,24 +219,10 @@ func findSocketInProcess(
 	// The second call also returns BYTES copied.
 	fdCount = int(size) / fdSize
 
-	fmt.Printf(
-		"PID %d: received %d FDs\n",
-		pid,
-		fdCount,
-	)
-
 	for i := 0; i < fdCount; i++ {
 		fd := fds[i]
 
-		fmt.Printf(
-			"PID %d: FD=%d TYPE=%d\n",
-			pid,
-			int(fd.proc_fd),
-			int(fd.proc_fdtype),
-		)
-
-		if uint32(fd.proc_fdtype) !=
-			uint32(C.PROX_FDTYPE_SOCKET) {
+		if uint32(fd.proc_fdtype) != uint32(C.PROX_FDTYPE_SOCKET) {
 			continue
 		}
 
@@ -275,13 +239,6 @@ func findSocketInProcess(
 			&port,
 		)
 
-		fmt.Printf(
-			"PID %d FD %d: socket lookup ret=%d\n",
-			pid,
-			int(fd.proc_fd),
-			int(ret),
-		)
-
 		if ret == 0 {
 			continue
 		}
@@ -290,16 +247,6 @@ func findSocketInProcess(
 			(*C.char)(unsafe.Pointer(
 				&ipBuffer[0],
 			)),
-		)
-
-		fmt.Printf(
-			"PID %d FD %d: local=%s:%d target=%s:%d\n",
-			pid,
-			int(fd.proc_fd),
-			localIP,
-			uint32(port),
-			targetIP.String(),
-			targetPort,
 		)
 
 		if uint32(port) != targetPort {
@@ -311,11 +258,6 @@ func findSocketInProcess(
 		) {
 			continue
 		}
-
-		fmt.Printf(
-			"PID %d: MATCH FOUND!\n",
-			pid,
-		)
 
 		return &SocketOwner{
 			PID: uint32(pid),

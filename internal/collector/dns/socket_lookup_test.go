@@ -10,6 +10,9 @@ import (
 type fakeSocketLookup struct {
 	owner *SocketOwner
 	err   error
+
+	lastIP   string
+	lastPort uint32
 }
 
 func (f *fakeSocketLookup) FindOwner(
@@ -17,7 +20,18 @@ func (f *fakeSocketLookup) FindOwner(
 	sourceIP string,
 	sourcePort uint32,
 ) (*SocketOwner, error) {
-	return f.owner, f.err
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	f.lastIP = sourceIP
+	f.lastPort = sourcePort
+
+	if f.err != nil {
+		return nil, f.err
+	}
+
+	return f.owner, nil
 }
 
 func TestSocketLookupFindOwner(t *testing.T) {

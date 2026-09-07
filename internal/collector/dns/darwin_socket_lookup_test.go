@@ -3,7 +3,7 @@
 package dns
 
 import (
-	"fmt"
+	"context"
 	"net"
 	"os"
 	"testing"
@@ -18,57 +18,68 @@ func TestDarwinSocketLookup_FindsOwner(t *testing.T) {
 		},
 	)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("failed to create UDP socket: %v", err)
 	}
 	defer conn.Close()
 
-	addr, ok := conn.LocalAddr().(*net.UDPAddr)
-	if !ok {
-		t.Fatalf(
-			"expected *net.UDPAddr, got %T",
-			conn.LocalAddr(),
-		)
-	}
+	addr := conn.LocalAddr().(*net.UDPAddr)
 
-	pid := os.Getpid()
-
-	fmt.Printf(
-		"TEST PID=%d SOCKET=%s:%d\n",
-		pid,
-		addr.IP.String(),
-		addr.Port,
-	)
-
-	// Directly test the process that we KNOW owns the socket.
 	owner, found, err := findSocketInProcess(
-		pid,
+		os.Getpid(),
 		addr.IP,
 		uint32(addr.Port),
 	)
 
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("socket lookup failed: %v", err)
 	}
 
-	fmt.Printf(
-		"direct lookup: owner=%+v found=%v\n",
-		owner,
-		found,
-	)
-
 	if !found {
-		t.Fatal("direct socket lookup failed")
+		t.Fatal("expected socket to be found")
 	}
 
 	if owner == nil {
 		t.Fatal("expected owner, got nil")
 	}
 
-	if owner.PID != uint32(pid) {
+	if int(owner.PID) != os.Getpid() {
 		t.Fatalf(
 			"expected PID %d, got %d",
-			pid,
+			os.Getpid(),
 			owner.PID,
 		)
+	}
+}
+
+func TestDarwinSocketLookup_InvalidIP(t *testing.T) {
+	lookup := NewDarwinSocketLookup()
+
+	_, err := lookup.FindOwner(
+		context.Background(),
+		"not-an-ip",
+		12345,
+	)
+
+	if err == nil {
+		t.Fatal("expected invalid IP error")
+	}
+}
+
+func TestDarwinSocketLookup_ContextCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(
+		context.Background(),
+	)
+	cancel()
+
+	lookup := NewDarwinSocketLookup()
+
+	_, err := lookup.FindOwner(
+		ctx,
+		"127.0.0.1",
+		12345,
+	)
+
+	if err == nil {
+		t.Fatal("expected context cancellation error")
 	}
 }

@@ -15,10 +15,14 @@ import (
 )
 
 type macOSCollector struct {
-	handle *pcap.Handle
+	handle     *pcap.Handle
+	attributor Attributor
 }
 
-func NewMacOSCollector(device string) (*macOSCollector, error) {
+func NewMacOSCollector(
+	device string,
+	attributor Attributor,
+) (*macOSCollector, error) {
 	handle, err := pcap.OpenLive(
 		device,
 		1600,
@@ -38,28 +42,32 @@ func NewMacOSCollector(device string) (*macOSCollector, error) {
 	}
 
 	return &macOSCollector{
-		handle: handle,
+		handle:     handle,
+		attributor: attributor,
 	}, nil
 }
 
-func (c *macOSCollector) Collect(
+func (c *macOSCollector) Run(
 	ctx context.Context,
-) ([]core.DNSQuery, error) {
+	handler func(core.DNSQuery),
+) error {
+	if handler == nil {
+		return fmt.Errorf("DNS handler cannot be nil")
+	}
+
 	packetSource := gopacket.NewPacketSource(
 		c.handle,
 		c.handle.LinkType(),
 	)
 
-	var queries []core.DNSQuery
-
 	for {
 		select {
 		case <-ctx.Done():
-			return queries, ctx.Err()
+			return ctx.Err()
 
 		case packet, ok := <-packetSource.Packets():
 			if !ok {
-				return queries, nil
+				return nil
 			}
 
 			query := parseDNSPacket(packet)
@@ -68,7 +76,26 @@ func (c *macOSCollector) Collect(
 				continue
 			}
 
-			queries = append(queries, *query)
+			if c.attributor != nil {
+				srcIP := localAddress(packet)
+
+				if srcIP != nil {
+					srcPort := localPort(packet)
+
+					if srcPort != 0 {
+						if err := c.attributor.Attribute(
+							ctx,
+							query,
+							srcIP.String(),
+							srcPort,
+						); err != nil {
+							// DNS telemetry remains valid even if attribution fails.
+						}
+					}
+				}
+			}
+
+			handler(*query)
 		}
 	}
 }
@@ -160,6 +187,22 @@ func localAddress(
 	}
 
 	return nil
+}
+
+func localPort(
+	packet gopacket.Packet,
+) uint32 {
+	if udpLayer := packet.Layer(layers.LayerTypeUDP); udpLayer != nil {
+		udp := udpLayer.(*layers.UDP)
+		return uint32(udp.SrcPort)
+	}
+
+	if tcpLayer := packet.Layer(layers.LayerTypeTCP); tcpLayer != nil {
+		tcp := tcpLayer.(*layers.TCP)
+		return uint32(tcp.SrcPort)
+	}
+
+	return 0
 }
 
 func (c *macOSCollector) Close() {

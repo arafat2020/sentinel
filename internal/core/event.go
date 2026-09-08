@@ -23,14 +23,11 @@ type Event struct {
 	ID        string
 	Timestamp time.Time
 	Type      EventType
-
-	HostID string
-	OS     string
-
-	Process *Process
-
-	Network *NetworkConnection
-
-	Metadata map[string]any
-	DNS      *DNSQuery
+	HostID    string
+	OS        string
+	Process   *Process
+	Network   *NetworkConnection
+	Metadata  map[string]any
+	DNS       *DNSQuery
+	File      *FileEvent
 }

@@ -4,7 +4,7 @@ package file
 
 /*
 #cgo CFLAGS: -I${SRCDIR}
-#cgo LDFLAGS: -framework EndpointSecurity
+#cgo LDFLAGS: -lEndpointSecurity -lbsm
 
 #include "es_bridge.h"
 */

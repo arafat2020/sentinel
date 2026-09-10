@@ -6,17 +6,35 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/arafat2020/sentinel/internal/core"
 )
 
+type esClientAPI interface {
+	subscribe() error
+	close()
+}
+
 type macOSCollector struct {
 	mu     sync.Mutex
 	closed bool
+
+	events chan esEvent
+	client esClientAPI
 }
 
 func NewMacOSCollector() (*macOSCollector, error) {
-	return &macOSCollector{}, nil
+	return &macOSCollector{
+		events: make(chan esEvent, 256),
+	}, nil
+}
+
+func newMacOSCollectorWithClient(client esClientAPI) *macOSCollector {
+	return &macOSCollector{
+		events: make(chan esEvent, 256),
+		client: client,
+	}
 }
 
 func (c *macOSCollector) Run(
@@ -32,15 +50,41 @@ func (c *macOSCollector) Run(
 	}
 
 	c.mu.Lock()
+
 	if c.closed {
 		c.mu.Unlock()
 		return errors.New("file collector is closed")
 	}
+
+	client := c.client
+
 	c.mu.Unlock()
 
-	<-ctx.Done()
+	if client == nil {
+		return errors.New("Endpoint Security client is nil")
+	}
 
-	return ctx.Err()
+	if err := client.subscribe(); err != nil {
+		return err
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+
+		case event := <-c.events:
+			fileEvent, err := convertESEvent(
+				event,
+				time.Now(),
+			)
+			if err != nil {
+				continue
+			}
+
+			handler(fileEvent)
+		}
+	}
 }
 
 func (c *macOSCollector) Close() {
@@ -52,4 +96,15 @@ func (c *macOSCollector) Close() {
 	}
 
 	c.closed = true
+
+	if c.client != nil {
+		c.client.close()
+	}
+}
+
+func (c *macOSCollector) enqueueEvent(event esEvent) {
+	select {
+	case c.events <- event:
+	default:
+	}
 }

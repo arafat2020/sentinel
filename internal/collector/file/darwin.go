@@ -24,12 +24,6 @@ type macOSCollector struct {
 	client esClientAPI
 }
 
-func NewMacOSCollector() (*macOSCollector, error) {
-	return &macOSCollector{
-		events: make(chan esEvent, 256),
-	}, nil
-}
-
 func newMacOSCollectorWithClient(client esClientAPI) *macOSCollector {
 	return &macOSCollector{
 		events: make(chan esEvent, 256),

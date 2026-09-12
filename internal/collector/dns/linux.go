@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build linux
 
 package dns
 
@@ -11,15 +11,23 @@ import (
 	"github.com/google/gopacket/pcap"
 )
 
-type macOSCollector struct {
+// linuxCollector captures DNS query traffic on Linux via libpcap, mirroring
+// the macOS collector (darwin.go). The two only differ in the platform used
+// to resolve the observing process (see linux_socket_lookup.go), since
+// packet capture and decoding are handled identically by libpcap/gopacket
+// on both platforms.
+type linuxCollector struct {
 	handle     *pcap.Handle
 	attributor Attributor
 }
 
-func NewMacOSCollector(
+// NewLinuxCollector opens a live packet capture on the given network
+// device (e.g. "eth0", or "any" to capture on all interfaces) and filters
+// for DNS traffic. Requires libpcap to be installed on the host.
+func NewLinuxCollector(
 	device string,
 	attributor Attributor,
-) (*macOSCollector, error) {
+) (*linuxCollector, error) {
 	handle, err := pcap.OpenLive(
 		device,
 		1600,
@@ -38,13 +46,13 @@ func NewMacOSCollector(
 		return nil, fmt.Errorf("set DNS filter: %w", err)
 	}
 
-	return &macOSCollector{
+	return &linuxCollector{
 		handle:     handle,
 		attributor: attributor,
 	}, nil
 }
 
-func (c *macOSCollector) Run(
+func (c *linuxCollector) Run(
 	ctx context.Context,
 	handler func(core.DNSQuery),
 ) error {
@@ -97,11 +105,7 @@ func (c *macOSCollector) Run(
 	}
 }
 
-// parseDNSPacket, dnsTypeName, localAddress, and localPort are shared
-// packet-decoding helpers defined in packet.go so they can be reused by
-// every platform-specific collector (see linux.go).
-
-func (c *macOSCollector) Close() {
+func (c *linuxCollector) Close() {
 	if c.handle != nil {
 		c.handle.Close()
 	}

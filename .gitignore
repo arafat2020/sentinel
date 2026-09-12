@@ -12,6 +12,7 @@ Thumbs.db
 # Go build/test artifacts
 bin/
 dist/
+/sentinel
 coverage.out
 *.exe
 *.dll

@@ -49,10 +49,7 @@ jobs:
       - name: Install cross-compile toolchain
         run: |
           sudo dpkg --add-architecture arm64
-          sudo sed -i 's/^deb /deb [arch=amd64] /' /etc/apt/sources.list || true
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs) main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs)-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
-          sudo apt-get update -qq
+          sudo bash .github/scripts/setup-arm64-apt.sh
           sudo apt-get install -y gcc-aarch64-linux-gnu libpcap-dev:arm64
 
       - name: Build

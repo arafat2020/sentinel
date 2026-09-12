@@ -4,7 +4,7 @@ package dns
 
 /*
 #cgo CFLAGS: -I${SRCDIR}
-#include "darwin_socket_lookup_bridge.h"
+#include "socket_lookup_bridge_darwin.h"
 */
 import "C"
 

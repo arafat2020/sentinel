@@ -1,10 +1,10 @@
-//go:build darwin && cgo
+//go:build darwin && cgo && es
 
 package file
 
 /*
-#cgo CFLAGS: -I${SRCDIR}
-#cgo LDFLAGS: -lEndpointSecurity -lbsm
+#cgo CFLAGS: -I${SRCDIR} -DSENTINEL_ES_ENABLED
+#cgo LDFLAGS: -lEndpointSecurity -lbsm -framework Security -framework CoreFoundation
 
 #include "es_bridge_darwin.h"
 */

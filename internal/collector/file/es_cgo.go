@@ -6,7 +6,7 @@ package file
 #cgo CFLAGS: -I${SRCDIR}
 #cgo LDFLAGS: -lEndpointSecurity -lbsm
 
-#include "es_bridge.h"
+#include "es_bridge_darwin.h"
 */
 import "C"
 

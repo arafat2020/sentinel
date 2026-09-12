@@ -1,4 +1,4 @@
-#include "es_bridge.h"
+#include "es_bridge_darwin.h"
 
 #include <EndpointSecurity/EndpointSecurity.h>
 #include <bsm/libbsm.h>

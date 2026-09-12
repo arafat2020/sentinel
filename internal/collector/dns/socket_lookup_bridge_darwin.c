@@ -1,4 +1,4 @@
-#include "darwin_socket_lookup_bridge.h"
+#include "socket_lookup_bridge_darwin.h"
 
 #include <arpa/inet.h>
 #include <libproc.h>

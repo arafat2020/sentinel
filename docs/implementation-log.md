@@ -316,6 +316,85 @@ curl -fsSL https://raw.githubusercontent.com/arafat2020/sentinel/main/install.sh
 
 ---
 
+## Changelog
+
+### Post-initial-release fixes
+
+#### README overhaul
+`README.md` was empty. Replaced with a full project readme covering:
+- Feature list, quick-start for Linux (one-liner) and macOS (with/without ES entitlement)
+- Architecture diagram and layer table
+- Requirements tables per platform
+- Release binary asset table
+- Upcoming features section
+- Full project directory tree
+
+#### `.gitignore` — root binary
+Added `/sentinel` (leading slash = repo root only) so the locally-built dev binary is not accidentally staged.
+
+#### CI/CD — CGo files included on Linux (amd64 build broken)
+
+**Root cause:** Go's filename-based OS filtering only excludes files that *end* with `_GOOS.ext` (e.g. `foo_darwin.c`). Files that *start* with `darwin_` are compiled on all platforms. CGo compiled `darwin_socket_lookup_bridge.c` and `es_bridge.m` on Linux, producing:
+```
+C source files not allowed when not using cgo or SWIG: darwin_socket_lookup_bridge.c
+```
+
+**Fix:** renamed all four darwin-only C/ObjC files:
+| Old name | New name |
+|----------|----------|
+| `internal/collector/dns/darwin_socket_lookup_bridge.c` | `socket_lookup_bridge_darwin.c` |
+| `internal/collector/dns/darwin_socket_lookup_bridge.h` | `socket_lookup_bridge_darwin.h` |
+| `internal/collector/file/es_bridge.m` | `es_bridge_darwin.m` |
+| `internal/collector/file/es_bridge.h` | `es_bridge_darwin.h` |
+
+Updated the four `#include` lines in `es_bridge_darwin.m`, `es_cgo.go`, `socket_lookup_bridge_darwin.c`, and `darwin_socket_lookup.go`.
+
+#### CI/CD — arm64 cross-compilation broken (three iterations)
+
+**Iteration 1 — apt 404s on security.ubuntu.com**
+
+Ubuntu 24.04 uses deb822 format (`/etc/apt/sources.list.d/ubuntu.sources`) instead of the legacy one-line format. After `dpkg --add-architecture arm64`, apt fetches arm64 package lists from ALL configured sources including `security.ubuntu.com`, which does not carry arm64. The original inline `sed` command silently failed to patch the deb822 file, so the 404s remained.
+
+**Fix:** extracted arm64 apt setup to `.github/scripts/setup-arm64-apt.sh`:
+- Handles deb822 format via Python3 (injects `Architectures: amd64` after each `Types: deb` stanza)
+- Handles legacy `.list` format via `sed`
+- Writes arm64-only source pointing exclusively to `ports.ubuntu.com`
+- Called from workflow as `sudo bash .github/scripts/setup-arm64-apt.sh`
+
+**Iteration 2 — Microsoft prod list corrupted**
+
+The `sed` pattern `s|^deb |deb [arch=amd64] |` matched lines that already carried options (e.g. `deb [arch=amd64,arm64 signed-by=...] https://packages.microsoft.com/...`), prepending a second `[arch=amd64]` and producing a malformed entry:
+```
+E: Malformed entry 1 in list file /etc/apt/sources.list.d/microsoft-prod.list
+```
+
+**Fix:** changed the pattern to only match `deb ` when the next character is NOT `[`:
+```bash
+sed -i "s|^deb \([^[]\)|deb [arch=amd64] \1|"
+```
+
+**Iteration 3 — libpcap-dev:arm64 not found**
+
+The setup script added `ports.ubuntu.com` to the apt sources but didn't call `apt-get update` after adding them, so the package index had no knowledge of arm64 packages.
+
+**Fix:** added `apt-get update -qq` as the second-to-last line of `setup-arm64-apt.sh`.
+
+#### Linux file telemetry — paths blank in File tab
+
+**Root cause:** with `FAN_REPORT_FID` set in `fanotify_init`, the kernel does NOT open a file descriptor for events — it sends FID records instead, and `meta.Fd` is `FAN_NOFD (-1)` for ALL events including `FAN_CLOSE_WRITE`. The FID record type for `FAN_CLOSE_WRITE` is type 1 (`FAN_EVENT_INFO_TYPE_FID` — the file's own handle). `resolvePathFromFID` only handled type 2 (`DFID_NAME`) and type 3 (`DFID`), so every `FAN_CLOSE_WRITE` event returned an empty path.
+
+**Fix:** in `linux_fanotify.go`, merged `infoTypeFID` (1) into the `infoTypeDFID` (3) case:
+```go
+case infoTypeDFID, infoTypeFID:
+    // infoTypeFID: file's own FID sent for FAN_CLOSE_WRITE when FAN_REPORT_FID is set.
+    if path := parseFIDRecord(infoBuf[offset:offset+infoLen], mountFd, false); path != "" {
+        return path
+    }
+```
+`parseFIDRecord` calls `OpenByHandleAt` on any file handle (file or directory) and resolves the absolute path via `/proc/self/fd`, so the same code path works for both.
+
+---
+
 ## Known Gaps / Next Steps
 
 | Area | Status | Notes |
@@ -326,3 +405,4 @@ curl -fsSL https://raw.githubusercontent.com/arafat2020/sentinel/main/install.sh
 | `es_event.go` test leak | Tech debt | `TestMacOSEventChannel` is in a non-test file; should move to `_test.go` |
 | Findings persistence | Not started | Findings only go to TUI; no log file or SIEM export |
 | Config file | Not started | Watch paths, rule toggles, severity thresholds all hardcoded |
+| First release tag | Pending | No `v*` tag pushed yet; installer returns 404 until one exists |

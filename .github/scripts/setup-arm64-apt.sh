@@ -53,4 +53,6 @@ deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${CODENAME}-updates main r
 deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${CODENAME}-security main restricted universe multiverse
 EOF
 
+apt-get update -qq
+
 echo "apt sources restricted to amd64; arm64 routed to ports.ubuntu.com (${CODENAME})"

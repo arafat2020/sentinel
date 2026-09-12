@@ -1,6 +1,6 @@
 # Sentinel
 
-A host-based telemetry and behavioral detection agent for Linux and macOS. Sentinel collects process, network, DNS, and file events from the OS kernel, routes them through an in-process event bus, and runs a correlation engine that fires findings when multi-step behavioral patterns match.
+A host-based telemetry and behavioral detection agent for Linux, macOS, and Windows. Sentinel collects process, network, DNS, and file events from the OS kernel, routes them through an in-process event bus, and runs a correlation engine that fires findings when multi-step behavioral patterns match.
 
 Everything is visible in a live terminal TUI with five tabs — no external services required.
 
@@ -14,6 +14,7 @@ Everything is visible in a live terminal TUI with five tabs — no external serv
 - **File telemetry** — create, write, delete, and rename events with path and PID
   - Linux: fanotify (kernel ≥ 5.9, `CAP_SYS_ADMIN`)
   - macOS: Endpoint Security framework (requires entitlement + root)
+  - Windows: `ReadDirectoryChangesW` (Administrator required)
 - **Correlation engine** — cross-process behavioral pattern matching with 5-minute deduplication window
 - **Terminal TUI** — five live tabs (Process · Network · DNS · File · Findings) navigable by keyboard
 
@@ -52,6 +53,46 @@ git clone https://github.com/arafat2020/sentinel.git
 cd sentinel
 go build -o sentinel ./cmd/sentinel
 sudo ./sentinel
+```
+
+### Windows (one-liner install)
+
+Open **PowerShell as Administrator** and run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/arafat2020/sentinel/main/install.ps1 | iex"
+```
+
+The installer:
+1. Fetches the latest `sentinel-windows-amd64.exe` from GitHub Releases
+2. Verifies the SHA-256 checksum
+3. Installs to `C:\Program Files\Sentinel\sentinel.exe`
+4. Adds the install directory to the system `PATH`
+5. Checks whether Npcap is installed (required for DNS telemetry)
+
+After install, open an **elevated terminal** and run:
+
+```powershell
+sentinel.exe
+```
+
+> **DNS telemetry prerequisite:** install [Npcap](https://npcap.com/#download) with
+> "WinPcap API-compatible Mode" enabled before running Sentinel.
+
+### Windows (build from source)
+
+```powershell
+# 1. Install Npcap SDK: https://npcap.com/dist/npcap-sdk-1.13.zip
+# 2. Set CGo flags (adjust path to where you extracted the SDK):
+$env:CGO_CFLAGS  = "-IC:\npcap-sdk\Include"
+$env:CGO_LDFLAGS = "-LC:\npcap-sdk\Lib\x64 -lwpcap"
+
+git clone https://github.com/arafat2020/sentinel.git
+cd sentinel
+go build -o sentinel.exe ./cmd/sentinel
+
+# Run as Administrator:
+.\sentinel.exe
 ```
 
 ### macOS (DNS + process + network)
@@ -111,16 +152,17 @@ Without the entitlement, file telemetry is silently skipped — all other tabs s
 
 ```
 OS Kernel
-  ├── fanotify (Linux file)           ─┐
-  ├── Endpoint Security (macOS file)   │
-  ├── libpcap (DNS — Linux & macOS)    ├─► Collectors ─► Monitors ─► Event Bus
-  ├── gopsutil (process — all OS)      │                                  │
-  └── gopsutil (network — all OS)     ─┘                                  │
-                                                                           ▼
-                                                              Correlation Engine
-                                                                           │
-                                                                           ▼
-                                                                 Finding Sink ─► TUI (Findings tab)
+  ├── fanotify (Linux file)                   ─┐
+  ├── Endpoint Security (macOS file)           │
+  ├── ReadDirectoryChangesW (Windows file)     │
+  ├── libpcap / Npcap (DNS — all OS)           ├─► Collectors ─► Monitors ─► Event Bus
+  ├── gopsutil (process — all OS)              │                                  │
+  └── gopsutil (network — all OS)             ─┘                                  │
+                                                                                   ▼
+                                                                      Correlation Engine
+                                                                                   │
+                                                                                   ▼
+                                                                         Finding Sink ─► TUI (Findings tab)
 ```
 
 | Layer | Package | Role |
@@ -155,16 +197,26 @@ OS Kernel
 | root | libpcap + Endpoint Security |
 | ES entitlement | File telemetry (optional) |
 
+### Windows
+| Requirement | Purpose |
+|-------------|---------|
+| Go 1.21+ | Build from source |
+| Npcap (WinPcap-compatible mode) | DNS telemetry (runtime) |
+| Npcap SDK | DNS telemetry (build from source) |
+| Administrator | Packet capture + directory watching |
+| Windows 10 / Server 2016+ | `ReadDirectoryChangesW` + socket table APIs |
+
 ---
 
 ## Release Binaries
 
-Pre-built Linux binaries are published on every `v*` tag via GitHub Actions:
+Pre-built binaries are published on every `v*` tag via GitHub Actions:
 
 | Asset | Platform |
 |-------|----------|
 | `sentinel-linux-amd64` | Linux x86_64 |
 | `sentinel-linux-arm64` | Linux aarch64 |
+| `sentinel-windows-amd64.exe` | Windows x86_64 |
 | `checksums.txt` | SHA-256 checksums |
 
 Download from [Releases](https://github.com/arafat2020/sentinel/releases).
@@ -175,7 +227,7 @@ Download from [Releases](https://github.com/arafat2020/sentinel/releases).
 
 | Feature | Status |
 |---------|--------|
-| Windows support (ETW-based collectors) | Planned |
+| Windows support (DNS + file + process via Npcap / ReadDirectoryChangesW) | **Done** |
 | macOS App Store / notarized build | Planned |
 | Findings log file export | Planned |
 | SIEM / JSON output mode | Planned |
@@ -193,15 +245,16 @@ sentinel/
 │   ├── main.go               # Platform-neutral entry point
 │   ├── ui.go                 # Terminal TUI (tview)
 │   ├── platform_linux.go     # Linux: fanotify + libpcap wiring
-│   └── platform_darwin.go    # macOS: Endpoint Security + libpcap wiring
+│   ├── platform_darwin.go    # macOS: Endpoint Security + libpcap wiring
+│   └── platform_windows.go   # Windows: ReadDirectoryChangesW + Npcap wiring
 ├── internal/
 │   ├── core/                 # Shared domain types
 │   ├── eventbus/             # Bounded pub/sub event bus
 │   ├── collector/
 │   │   ├── process/          # gopsutil process collector
 │   │   ├── network/          # gopsutil network collector
-│   │   ├── dns/              # libpcap DNS collector (Linux + macOS)
-│   │   └── file/             # fanotify (Linux) + ES (macOS) file collector
+│   │   ├── dns/              # libpcap/Npcap DNS collector (Linux + macOS + Windows)
+│   │   └── file/             # fanotify (Linux) + ES (macOS) + RDC (Windows)
 │   ├── monitor/              # Collector → bus adapters
 │   ├── detection/
 │   │   ├── process/          # Process lifecycle + suspicious child rules
@@ -211,6 +264,7 @@ sentinel/
 ├── docs/
 │   └── implementation-log.md # Detailed component reference
 ├── install.sh                # Linux one-liner installer
+├── install.ps1               # Windows one-liner installer (PowerShell)
 └── .github/workflows/
     └── release.yml           # Multi-arch CI release pipeline
 ```

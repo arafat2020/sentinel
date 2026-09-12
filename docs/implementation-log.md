@@ -18,16 +18,17 @@ This document tracks every component built, the decisions behind each, and the c
 
 ```
 OS Kernel
-  ├── fanotify (Linux file)          ─┐
-  ├── Endpoint Security (macOS file)  │
-  ├── libpcap (DNS — Linux & macOS)   ├─► Collectors ─► Monitors ─► Event Bus
-  ├── gopsutil (process — all OS)     │                               │
-  └── gopsutil (network — all OS)    ─┘                               │
-                                                                       ▼
-                                                          Correlation Engine
-                                                                       │
-                                                                       ▼
-                                                             Finding Sink ─► TUI
+  ├── fanotify (Linux file)                 ─┐
+  ├── Endpoint Security (macOS file)         │
+  ├── ReadDirectoryChangesW (Windows file)   │
+  ├── libpcap / Npcap (DNS — all OS)         ├─► Collectors ─► Monitors ─► Event Bus
+  ├── gopsutil (process — all OS)            │                               │
+  └── gopsutil (network — all OS)           ─┘                               │
+                                                                               ▼
+                                                                  Correlation Engine
+                                                                               │
+                                                                               ▼
+                                                                     Finding Sink ─► TUI
 ```
 
 ---
@@ -97,6 +98,10 @@ Platform-specific via **libpcap** (CGo, `google/gopacket`).
 | `darwin_attributor.go` | darwin | Attributes DNS queries on macOS |
 | `darwin_socket_lookup.go` | darwin | macOS socket table lookup |
 
+| `windows.go` | windows | `NewWindowsCollector(device, attributor)` — captures on first active Npcap interface |
+| `windows_attributor.go` | windows | Attributes DNS queries to PIDs via Windows socket table |
+| `windows_socket_lookup.go` | windows | `NewWindowsSocketLookup()` — `GetExtendedTcpTable` / `GetExtendedUdpTable` via `iphlpapi.dll` |
+
 All platform variants implement the `dns.Collector` interface consumed by `monitor.DNSMonitor`.
 
 ---
@@ -123,6 +128,25 @@ Uses **fanotify** (kernel 5.9+, `CAP_SYS_ADMIN`).
 **Path resolution:**
 - `FAN_CLOSE_WRITE` (Fd ≥ 0): `os.Readlink("/proc/self/fd/{fd}")`
 - `FAN_CREATE/DELETE/MOVE` (Fd = -1): FID record parsing → `unix.OpenByHandleAt` → readlink
+
+#### Windows (`windows.go`, `windows_watcher.go`)
+
+Uses **ReadDirectoryChangesW** — available on all Windows versions from XP onward; no extra drivers required beyond Administrator rights.
+
+| File | Role |
+|------|------|
+| `windows_watcher.go` | `windowsWatcher` — opens a recursive directory handle with `FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED`; reads change notifications via overlapped I/O and `WaitForSingleObject` (200 ms timeout for clean shutdown); parses `FILE_NOTIFY_INFORMATION` records (UTF-16LE filenames) |
+| `windows.go` | `windowsCollector` — implements `Collector`; converts `FILE_ACTION_*` constants to `core.FileOperation`; `DefaultWatchRoot()` reads `%SYSTEMDRIVE%` (falls back to `C:\`) |
+
+**Action → Operation mapping:**
+| Windows Action | core.FileOperation |
+|----------------|-------------------|
+| `FILE_ACTION_ADDED` (1) | `FileCreate` |
+| `FILE_ACTION_MODIFIED` (3) | `FileModify` |
+| `FILE_ACTION_REMOVED` (2) | `FileDelete` |
+| `FILE_ACTION_RENAMED_OLD/NEW_NAME` (4/5) | `FileRename` |
+
+**Limitation:** `ReadDirectoryChangesW` does not provide the PID that caused the change. Process attribution requires ETW (Event Tracing for Windows), planned for a future release.
 
 #### macOS (`darwin.go`, `es_cgo.go`, `es_callback.go`, `es_bridge.h/m`)
 
@@ -247,8 +271,12 @@ Built with **tview** (tcell backend).
 - Calls `buildPlatformMonitors(ctx, bus)` for platform-specific DNS + file
 - Blocks on `ui.Run()`; on Ctrl+C: `bus.Shutdown()` → `bus.Wait()` → `ui.Stop()`
 
-#### Adding a new OS
-Create `cmd/sentinel/platform_windows.go` with `//go:build windows` implementing the same `buildPlatformMonitors(ctx, bus) ([]func(), error)` signature. Nothing else needs to change.
+#### `platform_windows.go` (`//go:build windows`)
+- DNS: `NewWindowsSocketLookup` → `NewWindowsAttributor` → `NewWindowsCollector("")` → `DNSMonitor`
+  - Empty device string → `firstActiveDevice()` picks the first Npcap interface
+- File: `NewWindowsCollector(DefaultWatchRoot())` → `FileMonitor`
+  - Watch root defaults to `%SYSTEMDRIVE%\` (typically `C:\`)
+  - File monitor failure is non-fatal (logged but not fatal — CAP equivalent is Administrator)
 
 ---
 
@@ -261,7 +289,7 @@ Triggered on `v*` tags. Two parallel jobs:
 
 Both upload artifacts to a `release` job that checksums and publishes to GitHub Releases.
 
-#### `install.sh`
+#### `install.sh` (Linux)
 One-liner installer:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/arafat2020/sentinel/main/install.sh | sudo bash
@@ -270,9 +298,36 @@ Steps: OS/arch check → kernel version warning (< 5.9) → fetch latest version
 
 Supported architectures: `x86_64` (amd64), `aarch64` / `arm64`.
 
+#### `install.ps1` (Windows)
+One-liner installer (run as Administrator in PowerShell):
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/arafat2020/sentinel/main/install.ps1 | iex"
+```
+Steps: fetch latest release from GitHub API → locate `sentinel-windows-amd64.exe` asset → download → SHA-256 verify → install to `C:\Program Files\Sentinel\` → add to machine PATH → check Npcap presence.
+
+#### GitHub Actions release workflow
+Triggered on `v*` tags. Three parallel jobs:
+- `build-amd64` on `ubuntu-latest` — `libpcap-dev` → `sentinel-linux-amd64`
+- `build-arm64` on `ubuntu-latest` — `gcc-aarch64-linux-gnu` + `libpcap-dev:arm64` (multi-arch apt setup) → `sentinel-linux-arm64`
+- `build-windows-amd64` on `windows-latest` — downloads Npcap SDK, sets `CGO_CFLAGS`/`CGO_LDFLAGS` → `sentinel-windows-amd64.exe`
+
+All three upload artifacts to a `release` job that checksums and publishes to GitHub Releases.
+
 ---
 
 ## Running
+
+### Linux (full cycle — build from source)
+```bash
+sudo apt install libpcap-dev
+go build -o sentinel ./cmd/sentinel
+sudo ./sentinel        # needs CAP_SYS_ADMIN for fanotify, libpcap for DNS
+```
+
+### Linux (one-liner install)
+```bash
+curl -fsSL https://raw.githubusercontent.com/arafat2020/sentinel/main/install.sh | sudo bash
+```
 
 ### macOS (DNS + process + network)
 ```bash
@@ -288,16 +343,17 @@ codesign -s - --entitlements entitlements.plist ./sentinel
 sudo ./sentinel
 ```
 
-### Linux (full cycle)
-```bash
-sudo apt install libpcap-dev
-go build -o sentinel ./cmd/sentinel
-sudo ./sentinel        # needs CAP_SYS_ADMIN for fanotify, libpcap for DNS
+### Windows (one-liner install — PowerShell as Administrator)
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/arafat2020/sentinel/main/install.ps1 | iex"
 ```
 
-### Install from GitHub (Linux)
-```bash
-curl -fsSL https://raw.githubusercontent.com/arafat2020/sentinel/main/install.sh | sudo bash
+### Windows (build from source)
+```powershell
+$env:CGO_CFLAGS  = "-IC:\npcap-sdk\Include"
+$env:CGO_LDFLAGS = "-LC:\npcap-sdk\Lib\x64 -lwpcap"
+go build -o sentinel.exe ./cmd/sentinel
+.\sentinel.exe           # must run as Administrator
 ```
 
 ---
@@ -379,6 +435,29 @@ The setup script added `ports.ubuntu.com` to the apt sources but didn't call `ap
 
 **Fix:** added `apt-get update -qq` as the second-to-last line of `setup-arm64-apt.sh`.
 
+#### Windows collectors — full platform support
+
+Implemented all platform-specific collectors needed to run Sentinel on Windows:
+
+**DNS** (`internal/collector/dns/`)
+- `windows_socket_lookup.go` — resolves the PID owning a DNS socket by calling `GetExtendedTcpTable` / `GetExtendedUdpTable` from `iphlpapi.dll`. Supports both TCP and UDP. Implements automatic buffer-growth retry on `ERROR_INSUFFICIENT_BUFFER` (up to 8 doublings starting at 4 KiB). Port values are read as big-endian uint16 from a little-endian DWORD, which is how Windows stores them.
+- `windows_attributor.go` — pairs `windowsSocketLookup` with gopsutil process resolution; identical pattern to `linuxAttributor`.
+- `windows.go` — gopacket/pcap DNS capture via Npcap; `firstActiveDevice()` scans `pcap.FindAllDevs()` for the first interface with at least one address, used when no device name is provided.
+
+**File** (`internal/collector/file/`)
+- `windows_watcher.go` — `ReadDirectoryChangesW` with overlapped I/O + `WaitForSingleObject` (200 ms tick). `CreateFile` opens the watch directory with `FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED`. The read loop reissues the call after each batch; `CancelIoEx` + `CloseHandle` on shutdown ensures the pending read is cancelled before the handle is released. `FILE_NOTIFY_INFORMATION` records carry UTF-16LE filenames; decoded via `unicode/utf16`.
+- `windows.go` — `windowsCollector` + `convertWindowsEvent`; `DefaultWatchRoot()` exported so `platform_windows.go` can call it.
+
+**Platform wiring** (`cmd/sentinel/platform_windows.go`) — mirrors `platform_linux.go`; wires DNS + file into the event bus; file collector failure is non-fatal.
+
+**CI** (`.github/workflows/release.yml`) — new `build-windows-amd64` job on `windows-latest` downloads the Npcap SDK ZIP, injects `CGO_CFLAGS`/`CGO_LDFLAGS` into the GitHub Actions environment, builds `sentinel-windows-amd64.exe`, and uploads it as an artifact. The `release` job now depends on all three builds and publishes the `.exe` in GitHub Releases.
+
+**Installer** (`install.ps1`) — PowerShell one-liner installer:
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/arafat2020/sentinel/main/install.ps1 | iex"
+```
+Fetches the latest release from the GitHub API, verifies SHA-256, installs to `C:\Program Files\Sentinel\`, adds to the machine PATH, and checks whether Npcap is present.
+
 #### Linux file telemetry — paths blank in File tab
 
 **Root cause:** with `FAN_REPORT_FID` set in `fanotify_init`, the kernel does NOT open a file descriptor for events — it sends FID records instead, and `meta.Fd` is `FAN_NOFD (-1)` for ALL events including `FAN_CLOSE_WRITE`. The FID record type for `FAN_CLOSE_WRITE` is type 1 (`FAN_EVENT_INFO_TYPE_FID` — the file's own handle). `resolvePathFromFID` only handled type 2 (`DFID_NAME`) and type 3 (`DFID`), so every `FAN_CLOSE_WRITE` event returned an empty path.
@@ -399,7 +478,8 @@ case infoTypeDFID, infoTypeFID:
 
 | Area | Status | Notes |
 |------|--------|-------|
-| Windows support | Not started | Add `platform_windows.go` with ETW-based collectors |
+| Windows support | **Done** | DNS (Npcap/gopacket), file (ReadDirectoryChangesW), process (gopsutil) — PID attribution on file events needs ETW |
+| Windows file PID attribution | Not started | ReadDirectoryChangesW does not expose the PID; requires ETW (Event Tracing for Windows) |
 | macOS file entitlement | Needs signing | ES client returns `ERR_NOT_ENTITLED` without `com.apple.developer.endpoint-security.client` |
 | `DefaultPatterns` coverage | Minimal | Only basic parent→child→network chain; more behavioral rules needed |
 | `es_event.go` test leak | Tech debt | `TestMacOSEventChannel` is in a non-test file; should move to `_test.go` |

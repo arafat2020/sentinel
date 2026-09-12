@@ -204,7 +204,10 @@ func resolvePathFromFID(infoBuf []byte, mountFd int) string {
 			if path := parseFIDRecord(infoBuf[offset:offset+infoLen], mountFd, true); path != "" {
 				return path
 			}
-		case infoTypeDFID:
+		case infoTypeDFID, infoTypeFID:
+			// infoTypeDFID: directory FID (no name appended).
+			// infoTypeFID: the file's own FID — sent for FAN_CLOSE_WRITE when
+			// FAN_REPORT_FID is set. OpenByHandleAt + readlink resolves either.
 			if path := parseFIDRecord(infoBuf[offset:offset+infoLen], mountFd, false); path != "" {
 				return path
 			}

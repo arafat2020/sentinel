@@ -37,11 +37,13 @@ PYEOF
 fi
 
 # --- legacy one-line format ---
+# Only add [arch=amd64] to lines that do NOT already carry options (no "["),
+# to avoid corrupting files like microsoft-prod.list that already have options.
 if [ -f /etc/apt/sources.list ]; then
-    sed -i "s|^deb |deb [arch=amd64] |" /etc/apt/sources.list
+    sed -i "s|^deb \([^[]\)|deb [arch=amd64] \1|" /etc/apt/sources.list
 fi
 for f in /etc/apt/sources.list.d/*.list; do
-    [ -f "$f" ] && sed -i "s|^deb |deb [arch=amd64] |" "$f" || true
+    [ -f "$f" ] && sed -i "s|^deb \([^[]\)|deb [arch=amd64] \1|" "$f" || true
 done
 
 # --- arm64-only source: ports.ubuntu.com ---

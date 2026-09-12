@@ -1,8 +1,12 @@
 #include "es_bridge_darwin.h"
+#include <stdlib.h>
+
+#ifdef SENTINEL_ES_ENABLED
 
 #include <EndpointSecurity/EndpointSecurity.h>
+#include <Security/Security.h>
+#include <CoreFoundation/CoreFoundation.h>
 #include <bsm/libbsm.h>
-#include <stdlib.h>
 
 extern void sentinelGoESEvent(
     uint32_t event_type,
@@ -15,6 +19,32 @@ extern void sentinelGoESEvent(
 struct sentinel_es_client {
   es_client_t *client;
 };
+
+// Returns 0 if the running binary has a real (non-ad-hoc) code-signing
+// identity. Ad-hoc signed binaries have no TeamIdentifier; calling
+// es_new_client with the entitlement embedded in such a binary causes the
+// kernel to SIGKILL the process rather than returning an error code.
+static int check_signing_identity(void) {
+  SecCodeRef code = NULL;
+  if (SecCodeCopySelf(kSecCSDefaultFlags, &code) != errSecSuccess) {
+    return -10;
+  }
+
+  CFDictionaryRef info = NULL;
+  OSStatus status = SecCodeCopySigningInformation(
+      code, kSecCSSigningInformation, &info);
+  CFRelease(code);
+
+  if (status != errSecSuccess || info == NULL) {
+    return -11;
+  }
+
+  CFStringRef teamID =
+      (CFStringRef)CFDictionaryGetValue(info, kSecCodeInfoTeamIdentifier);
+  int result = (teamID != NULL) ? 0 : -12;
+  CFRelease(info);
+  return result;
+}
 
 static void handle_event(
     sentinel_es_client *state,
@@ -34,10 +64,6 @@ static void handle_event(
   int32_t ppid = process->ppid;
 
   switch (message->event_type) {
-
-  // Normalized event type constants sent to Go (must match es_event.go):
-  //   1 = esEventTypeCreate, 2 = esEventTypeWrite,
-  //   3 = esEventTypeUnlink, 4 = esEventTypeRename
 
   case ES_EVENT_TYPE_NOTIFY_CREATE: {
     char pathbuf[4096];
@@ -126,6 +152,13 @@ int sentinel_es_client_create(
     return -1;
   }
 
+  int signing_result = check_signing_identity();
+  if (signing_result != 0) {
+    // Ad-hoc or unsigned binary: calling es_new_client with the
+    // entitlement present would cause the kernel to SIGKILL this process.
+    return signing_result;
+  }
+
   sentinel_es_client *state =
       calloc(1, sizeof(sentinel_es_client));
 
@@ -141,7 +174,6 @@ int sentinel_es_client_create(
               const es_message_t *message
           ) {
             (void)client;
-
             handle_event(state, message);
           }
       );
@@ -152,7 +184,6 @@ int sentinel_es_client_create(
   }
 
   *out_client = state;
-
   return 0;
 }
 
@@ -198,3 +229,25 @@ void sentinel_es_client_delete(
 
   free(state);
 }
+
+#else /* !SENTINEL_ES_ENABLED — stubs so the file compiles without linking EndpointSecurity */
+
+struct sentinel_es_client {
+  int placeholder;
+};
+
+int sentinel_es_client_create(sentinel_es_client **out_client) {
+  (void)out_client;
+  return -99;
+}
+
+int sentinel_es_client_subscribe(sentinel_es_client *state) {
+  (void)state;
+  return -99;
+}
+
+void sentinel_es_client_delete(sentinel_es_client *state) {
+  (void)state;
+}
+
+#endif /* SENTINEL_ES_ENABLED */

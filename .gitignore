@@ -26,3 +26,6 @@ coverage.out
 .cache/
 tmp/
 *.log
+
+# Signing artifacts — not useful without a real Apple Developer ID
+entitlements.plist

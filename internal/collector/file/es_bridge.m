@@ -35,90 +35,82 @@ static void handle_event(
 
   switch (message->event_type) {
 
+  // Normalized event type constants sent to Go (must match es_event.go):
+  //   1 = esEventTypeCreate, 2 = esEventTypeWrite,
+  //   3 = esEventTypeUnlink, 4 = esEventTypeRename
+
   case ES_EVENT_TYPE_NOTIFY_CREATE: {
+    char pathbuf[4096];
     const char *path = NULL;
 
     if (message->event.create.destination_type ==
         ES_DESTINATION_TYPE_EXISTING_FILE) {
-
-      path =
-          message->event.create.destination.existing_file->path.data;
+      path = message->event.create.destination.existing_file->path.data;
+    } else if (message->event.create.destination_type ==
+               ES_DESTINATION_TYPE_NEW_PATH) {
+      const char *dir =
+          message->event.create.destination.new_path.dir->path.data;
+      const char *name =
+          message->event.create.destination.new_path.filename.data;
+      if (dir != NULL && name != NULL) {
+        snprintf(pathbuf, sizeof(pathbuf), "%s/%s", dir, name);
+        path = pathbuf;
+      }
     }
 
     if (path == NULL) {
       return;
     }
 
-    sentinelGoESEvent(
-        ES_EVENT_TYPE_NOTIFY_CREATE,
-        pid,
-        ppid,
-        path,
-        NULL
-    );
-
+    sentinelGoESEvent(1, pid, ppid, path, NULL);
     break;
   }
 
   case ES_EVENT_TYPE_NOTIFY_WRITE: {
-    const char *path =
-        message->event.write.target->path.data;
+    const char *path = message->event.write.target->path.data;
 
     if (path == NULL) {
       return;
     }
 
-    sentinelGoESEvent(
-        ES_EVENT_TYPE_NOTIFY_WRITE,
-        pid,
-        ppid,
-        path,
-        NULL
-    );
-
+    sentinelGoESEvent(2, pid, ppid, path, NULL);
     break;
   }
 
   case ES_EVENT_TYPE_NOTIFY_UNLINK: {
-    const char *path =
-        message->event.unlink.target->path.data;
+    const char *path = message->event.unlink.target->path.data;
 
     if (path == NULL) {
       return;
     }
 
-    sentinelGoESEvent(
-        ES_EVENT_TYPE_NOTIFY_UNLINK,
-        pid,
-        ppid,
-        path,
-        NULL
-    );
-
+    sentinelGoESEvent(3, pid, ppid, path, NULL);
     break;
   }
 
   case ES_EVENT_TYPE_NOTIFY_RENAME: {
-    const char *source =
-        message->event.rename.source->path.data;
+    const char *source = message->event.rename.source->path.data;
 
+    char destbuf[4096];
     const char *destination = NULL;
 
     if (message->event.rename.destination_type ==
         ES_DESTINATION_TYPE_EXISTING_FILE) {
-
       destination =
           message->event.rename.destination.existing_file->path.data;
+    } else if (message->event.rename.destination_type ==
+               ES_DESTINATION_TYPE_NEW_PATH) {
+      const char *dir =
+          message->event.rename.destination.new_path.dir->path.data;
+      const char *name =
+          message->event.rename.destination.new_path.filename.data;
+      if (dir != NULL && name != NULL) {
+        snprintf(destbuf, sizeof(destbuf), "%s/%s", dir, name);
+        destination = destbuf;
+      }
     }
 
-    sentinelGoESEvent(
-        ES_EVENT_TYPE_NOTIFY_RENAME,
-        pid,
-        ppid,
-        destination,
-        source
-    );
-
+    sentinelGoESEvent(4, pid, ppid, destination, source);
     break;
   }
 

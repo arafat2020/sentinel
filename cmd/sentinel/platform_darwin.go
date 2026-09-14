@@ -33,18 +33,16 @@ func buildPlatformMonitors(
 
 	dnsCollector, err := dnscollector.NewMacOSCollector("en0", attributor)
 	if err != nil {
-		return nil, fmt.Errorf("create macOS DNS collector: %w", err)
+		fmt.Printf("[sentinel] DNS monitor unavailable (run as root for packet capture): %v\n", err)
+	} else {
+		dnsMonitor := monitor.NewDNSMonitor(dnsCollector, bus)
+		go func() {
+			if err := dnsMonitor.Run(ctx); err != nil && ctx.Err() == nil {
+				fmt.Printf("[sentinel] DNS monitor stopped: %v\n", err)
+			}
+		}()
+		closers = append(closers, dnsMonitor.Close)
 	}
-
-	dnsMonitor := monitor.NewDNSMonitor(dnsCollector, bus)
-
-	go func() {
-		if err := dnsMonitor.Run(ctx); err != nil && ctx.Err() == nil {
-			fmt.Printf("[sentinel] DNS monitor stopped: %v\n", err)
-		}
-	}()
-
-	closers = append(closers, dnsMonitor.Close)
 
 	// --- File collector (Endpoint Security) ---
 	// Requires: com.apple.developer.endpoint-security.client entitlement + root.

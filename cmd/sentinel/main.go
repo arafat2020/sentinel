@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -25,10 +26,17 @@ import (
 var version = "dev"
 
 func main() {
+	headless := flag.Bool("headless", false, "run without TUI; log findings to stdout (suitable for servers / systemd)")
+	flag.Parse()
+
+	// SIGHUP is sent when the controlling terminal closes (e.g. SSH disconnect).
+	// Without it the process hangs inside tview waiting for a TTY that no
+	// longer exists. Handle it the same as SIGTERM: clean shutdown.
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
 		os.Interrupt,
 		syscall.SIGTERM,
+		syscall.SIGHUP,
 	)
 	defer stop()
 
@@ -42,6 +50,11 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sentinel: could not load patterns (%v), using defaults\n", err)
 		initialPatterns = correlation.DefaultPatterns()
+	}
+
+	if *headless {
+		runHeadless(ctx, initialPatterns, patternsPath)
+		return
 	}
 
 	ui := NewUI()

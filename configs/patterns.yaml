@@ -1,0 +1,20 @@
+patterns:
+    - name: network-active-parent-spawns-python
+      severity: MEDIUM
+      title: Network-active process spawned Python
+      description: A process with network activity spawned a Python process that also established a network connection.
+      processes:
+        - id: parent
+          conditions: []
+          events:
+            - type: NETWORK_CONNECT
+        - id: child
+          conditions:
+            - type: PROCESS_NAME
+              value: python
+          events:
+            - type: NETWORK_CONNECT
+      relationships:
+        - type: SPAWNED
+          parent: parent
+          child: child

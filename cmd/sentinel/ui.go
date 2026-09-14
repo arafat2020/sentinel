@@ -16,28 +16,32 @@ const (
 	tabDNS      = 2
 	tabFile     = 3
 	tabFindings = 4
-	tabCount    = 5
+	tabPatterns = 5
+	tabCount    = 6
 )
 
-var tabNames = [tabCount]string{"Process", "Network", "DNS", "File", "Findings"}
+var tabNames = [tabCount]string{"Process", "Network", "DNS", "File", "Findings", "Patterns"}
 
 // UI is a tview-based terminal dashboard with one scrolling pane per telemetry
 // type. All Add* methods are goroutine-safe and can be called from bus
 // subscribers while the tview event loop runs on the main goroutine.
 type UI struct {
-	app     *tview.Application
-	pages   *tview.Pages
-	views   [tabCount]*tview.TextView
-	tabBar  *tview.TextView
-	active  int
-	mu      sync.Mutex // guards active for cross-goroutine reads
+	app          *tview.Application
+	pages        *tview.Pages
+	views        [tabPatterns]*tview.TextView // telemetry text views (all tabs except Patterns)
+	tabBar       *tview.TextView
+	active       int
+	mu           sync.Mutex // guards active for cross-goroutine reads
+	patternsPage *PatternsPage
 }
 
+// NewUI constructs the dashboard. Call SetPatternsPage after construction to
+// wire the pattern editor before calling Run.
 func NewUI() *UI {
 	u := &UI{}
 	u.app = tview.NewApplication()
 
-	// Build one TextView per tab.
+	// Build one TextView per telemetry tab (not Patterns).
 	for i := range u.views {
 		tv := tview.NewTextView().
 			SetDynamicColors(true).
@@ -68,7 +72,7 @@ func NewUI() *UI {
 	u.app.SetRoot(root, true).EnableMouse(false)
 	u.renderTabBar()
 
-	// Tab navigation: 1-5 or ←/→ arrows.
+	// Tab navigation: 1-6 or ←/→ arrows.
 	u.app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyLeft:
@@ -78,7 +82,7 @@ func NewUI() *UI {
 			u.switchTab((u.active + 1) % tabCount)
 			return nil
 		case tcell.KeyRune:
-			if event.Rune() >= '1' && event.Rune() <= '5' {
+			if event.Rune() >= '1' && event.Rune() <= '6' {
 				u.switchTab(int(event.Rune() - '1'))
 				return nil
 			}
@@ -87,6 +91,13 @@ func NewUI() *UI {
 	})
 
 	return u
+}
+
+// SetPatternsPage wires the pattern editor into the dashboard. Must be called
+// before Run.
+func (u *UI) SetPatternsPage(pp *PatternsPage) {
+	u.patternsPage = pp
+	u.pages.AddPage(tabNames[tabPatterns], pp.Root(), true, false)
 }
 
 // Run starts the tview event loop. It blocks until Stop is called.
@@ -120,7 +131,7 @@ func (u *UI) renderTabBar() {
 			bar += fmt.Sprintf("[white:darkblue] %d:%s [-:-:-] ", i+1, name)
 		}
 	}
-	bar += "[gray:darkblue]  ←/→ or 1-5 to switch[-:-:-]"
+	bar += "[gray:darkblue]  ←/→ or 1-6 to switch[-:-:-]"
 	u.tabBar.SetText(bar)
 }
 

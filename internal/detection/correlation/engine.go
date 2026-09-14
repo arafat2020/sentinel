@@ -138,6 +138,13 @@ func (e *Engine) DetectBehaviors() []core.Finding {
 
 	return findings
 }
+// SetPatterns replaces the engine's pattern set and clears the suppression
+// cache so newly added or edited patterns can fire immediately.
+func (e *Engine) SetPatterns(patterns []BehaviorPattern) {
+	e.patterns = patterns
+	e.emitted = make(map[string]time.Time)
+}
+
 func (e *Engine) allRelationships() []ProcessRelationship {
 	var relationships []ProcessRelationship
 

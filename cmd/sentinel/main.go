@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/arafat2020/sentinel/internal/config"
 	"github.com/arafat2020/sentinel/internal/core"
 	"github.com/arafat2020/sentinel/internal/detection/correlation"
 	"github.com/arafat2020/sentinel/internal/eventbus"
@@ -31,6 +32,18 @@ func main() {
 	)
 	defer stop()
 
+	const patternsPath = "configs/patterns.yaml"
+
+	if err := config.EnsureDefaultFile(patternsPath); err != nil {
+		fmt.Fprintf(os.Stderr, "sentinel: could not create default patterns file: %v\n", err)
+	}
+
+	initialPatterns, err := config.LoadPatterns(patternsPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sentinel: could not load patterns (%v), using defaults\n", err)
+		initialPatterns = correlation.DefaultPatterns()
+	}
+
 	ui := NewUI()
 
 	bus := eventbus.New(1000)
@@ -52,6 +65,20 @@ func main() {
 	// ── Correlation engine ────────────────────────────────────────────────────
 
 	corrEngine := correlation.NewEngine(5 * time.Minute)
+	corrEngine.SetPatterns(initialPatterns)
+
+	// ── Pattern editor TUI page ───────────────────────────────────────────────
+
+	patternsPage := NewPatternsPage(
+		ui.app,
+		ui.pages,
+		patternsPath,
+		initialPatterns,
+		func(updated []correlation.BehaviorPattern) {
+			corrEngine.SetPatterns(updated)
+		},
+	)
+	ui.SetPatternsPage(patternsPage)
 
 	// ── Bus subscribers → UI tabs ─────────────────────────────────────────────
 

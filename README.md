@@ -2,7 +2,7 @@
 
 A host-based telemetry and behavioral detection agent for Linux, macOS, and Windows. Sentinel collects process, network, DNS, and file events from the OS kernel, routes them through an in-process event bus, and runs a correlation engine that fires findings when multi-step behavioral patterns match.
 
-Everything is visible in a live terminal TUI with five tabs — no external services required.
+Everything is visible in a live terminal TUI with seven tabs — no external services required.
 
 ---
 
@@ -10,13 +10,17 @@ Everything is visible in a live terminal TUI with five tabs — no external serv
 
 - **Process telemetry** — start/exit events, PID/PPID, executable path (all platforms via gopsutil)
 - **Network telemetry** — TCP/UDP connection open/close with remote address and port
-- **DNS telemetry** — per-query domain, record type, resolver IP, and attribution to originating process
-- **File telemetry** — create, write, delete, and rename events with path and PID
-  - Linux: fanotify (kernel ≥ 5.9, `CAP_SYS_ADMIN`)
-  - macOS: Endpoint Security framework (requires entitlement + root)
-  - Windows: `ReadDirectoryChangesW` (Administrator required)
-- **Correlation engine** — cross-process behavioral pattern matching with 5-minute deduplication window
-- **Terminal TUI** — five live tabs (Process · Network · DNS · File · Findings) navigable by keyboard
+- **DNS telemetry** — per-query domain, record type, resolver IP, attribution to originating process; captured across all active network interfaces simultaneously
+- **File telemetry** ⚠️ *under development* — create, write, delete, and rename events with path and PID
+  - Linux: fanotify (kernel ≥ 5.9, `CAP_SYS_ADMIN`) — *working*
+  - macOS: Endpoint Security framework (CGo bridge incomplete) — *not yet active*
+  - Windows: `ReadDirectoryChangesW` (Administrator required) — *working*
+- **Correlation engine** — YAML-defined cross-process behavioral patterns, hot-reloaded without restart
+- **Persistent event store** — all telemetry written to `sentinel.db` (SQLite); bounded 500-line ring buffer per tab prevents RAM growth
+- **Log query** — filter stored events by tab and date range from the CLI (`--query`)
+- **Headless mode** — run without a TUI for server/systemd deployments (`--headless`)
+- **Settings tab** — configure log retention and SSH remote-access kill-switch from inside the TUI
+- **Terminal TUI** — seven live tabs (Process · Network · DNS · File · Findings · Patterns · Settings) navigable by keyboard
 
 ---
 
@@ -95,16 +99,17 @@ go build -o sentinel.exe ./cmd/sentinel
 .\sentinel.exe
 ```
 
-### macOS (DNS + process + network)
+### macOS (one-liner)
 
 ```bash
-git clone https://github.com/arafat2020/sentinel.git
-cd sentinel
-go build -o sentinel ./cmd/sentinel
-sudo ./sentinel
+git clone https://github.com/arafat2020/sentinel.git && cd sentinel && make build && sudo ./sentinel
 ```
 
-### macOS (full — file telemetry via Endpoint Security)
+`make build` compiles the binary and runs `codesign --force --sign -` automatically.
+This step is **required** on macOS — skipping it leaves an Endpoint Security
+entitlement in the signature that causes the OS to kill the process on launch.
+
+### macOS (full — file telemetry via Endpoint Security) ⚠️ under development
 
 File telemetry on macOS requires the `com.apple.developer.endpoint-security.client` entitlement and must run as root.
 
@@ -143,8 +148,20 @@ Without the entitlement, file telemetry is silently skipped — all other tabs s
 | `3` | DNS tab |
 | `4` | File tab |
 | `5` | Findings tab |
+| `6` | Patterns tab (YAML behavioral pattern editor) |
+| `7` | Settings tab (retention · SSH kill-switch) |
 | `←` / `→` | Cycle tabs left/right |
 | `Ctrl+C` | Quit |
+
+### Settings tab shortcuts
+
+| Key | Action |
+|-----|--------|
+| `Tab` / `Enter` | Navigate fields and buttons |
+| `Ctrl+S` | Save log retention days |
+| `Ctrl+F` | Flush events older than retention window now |
+| `Ctrl+D` | Disable SSH (confirmation required) |
+| `Ctrl+E` | Enable SSH (confirmation required) |
 
 ---
 
@@ -227,13 +244,17 @@ Download from [Releases](https://github.com/arafat2020/sentinel/releases).
 
 | Feature | Status |
 |---------|--------|
-| Windows support (DNS + file + process via Npcap / ReadDirectoryChangesW) | **Done** |
-| macOS App Store / notarized build | Planned |
-| Findings log file export | Planned |
-| SIEM / JSON output mode | Planned |
-| Config file (watch paths, rule toggles, severity) | Planned |
-| More behavioral detection patterns | In progress |
+| macOS file telemetry (Endpoint Security CGo bridge) | **In progress** |
+| Script execution collector (`EventScriptExecution`) | Planned |
+| Persistence-path collector (`EventPersistenceChange`) | Planned |
+| Rich finding evidence (network, DNS, file in one finding) | Planned |
+| New correlation relationship types (COMMUNICATED_WITH, RESOLVED, MODIFIED) | Planned |
+| NDJSON finding log (machine-readable output) | Planned |
+| Per-pattern correlation window in YAML | Planned |
+| Allowlist / suppressions in YAML | Planned |
 | eBPF-based collectors (alternative to fanotify) | Research |
+
+See [`docs/roadmap.md`](docs/roadmap.md) for full detail and architectural rationale.
 
 ---
 

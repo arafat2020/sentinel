@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 
 	dnscollector "github.com/arafat2020/sentinel/internal/collector/dns"
 	filecollector "github.com/arafat2020/sentinel/internal/collector/file"
@@ -27,21 +28,57 @@ func buildPlatformMonitors(
 ) (closers []func(), err error) {
 	processResolver := processCollector.NewResolver()
 
-	// --- DNS collector (libpcap) ---
+	// --- DNS collectors (libpcap, one per active interface) ---
+	//
+	// macOS pcap does not support the Linux "any" pseudo-device, so we must
+	// open one handle per interface. DNS traffic can leave on whichever NIC
+	// the OS chooses (Ethernet, Wi-Fi, VPN tunnel), so we listen on all of
+	// them. Interfaces that fail to open (e.g. no BPF access, no address) are
+	// silently skipped.
 	socketLookup := dnscollector.NewDarwinSocketLookup()
 	attributor := dnscollector.NewDarwinAttributor(socketLookup, processResolver)
 
-	dnsCollector, err := dnscollector.NewMacOSCollector("en0", attributor)
-	if err != nil {
-		fmt.Printf("[sentinel] DNS monitor unavailable (run as root for packet capture): %v\n", err)
-	} else {
-		dnsMonitor := monitor.NewDNSMonitor(dnsCollector, bus)
+	started := 0
+	ifaces, _ := net.Interfaces()
+	for _, iface := range ifaces {
+		// Skip loopback and interfaces that are not up.
+		if iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		// Skip interfaces without an IP address — no real traffic there.
+		addrs, _ := iface.Addrs()
+		hasIP := false
+		for _, a := range addrs {
+			if ip, ok := a.(*net.IPNet); ok && !ip.IP.IsLinkLocalUnicast() {
+				hasIP = true
+				break
+			}
+		}
+		if !hasIP {
+			continue
+		}
+
+		col, openErr := dnscollector.NewMacOSCollector(iface.Name, attributor)
+		if openErr != nil {
+			// Fails silently for interfaces pcap cannot open (e.g. utun without BPF).
+			continue
+		}
+
+		dnsMonitor := monitor.NewDNSMonitor(col, bus)
+		name := iface.Name
 		go func() {
-			if err := dnsMonitor.Run(ctx); err != nil && ctx.Err() == nil {
-				fmt.Printf("[sentinel] DNS monitor stopped: %v\n", err)
+			if runErr := dnsMonitor.Run(ctx); runErr != nil && ctx.Err() == nil {
+				fmt.Printf("[sentinel] DNS monitor (%s) stopped: %v\n", name, runErr)
 			}
 		}()
 		closers = append(closers, dnsMonitor.Close)
+		started++
+	}
+
+	if started == 0 {
+		fmt.Println("[sentinel] DNS monitor unavailable — run as root for packet capture")
+	} else {
+		fmt.Printf("[sentinel] DNS monitor active on %d interface(s)\n", started)
 	}
 
 	// --- File collector (Endpoint Security) ---

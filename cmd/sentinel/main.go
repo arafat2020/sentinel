@@ -15,6 +15,7 @@ import (
 	"github.com/arafat2020/sentinel/internal/eventbus"
 	"github.com/arafat2020/sentinel/internal/finding"
 	"github.com/arafat2020/sentinel/internal/monitor"
+	"github.com/arafat2020/sentinel/internal/store"
 
 	networkcollector "github.com/arafat2020/sentinel/internal/collector/network"
 	processCollector "github.com/arafat2020/sentinel/internal/collector/process"
@@ -27,7 +28,19 @@ var version = "dev"
 
 func main() {
 	headless := flag.Bool("headless", false, "run without TUI; log findings to stdout (suitable for servers / systemd)")
+
+	// Query mode — reads from the DB and exits. Does not start any collectors.
+	queryMode := flag.Bool("query", false, "query stored events and exit")
+	queryTab := flag.String("tab", "", "filter by tab name: Process|Network|DNS|File|Findings (default: all)")
+	querySince := flag.String("since", "", "start date/time, e.g. 2026-09-14 or 2026-09-14T08:00:00")
+	queryUntil := flag.String("until", "", "end date/time (default: now)")
+	queryLimit := flag.Int("limit", 200, "maximum rows to return")
 	flag.Parse()
+
+	if *queryMode {
+		runQuery(*queryTab, *querySince, *queryUntil, *queryLimit)
+		return
+	}
 
 	// SIGHUP is sent when the controlling terminal closes (e.g. SSH disconnect).
 	// Without it the process hangs inside tview waiting for a TTY that no
@@ -52,12 +65,24 @@ func main() {
 		initialPatterns = correlation.DefaultPatterns()
 	}
 
+	// ── SQLite event store ────────────────────────────────────────────────────
+
+	eventStore, err := store.Open(dbPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sentinel: could not open store (%v); events will not be persisted\n", err)
+		eventStore = nil
+	} else {
+		defer eventStore.Close()
+		go eventStore.RunRetention(ctx)
+	}
+
 	if *headless {
-		runHeadless(ctx, initialPatterns, patternsPath)
+		runHeadless(ctx, initialPatterns, patternsPath, eventStore)
 		return
 	}
 
 	ui := NewUI()
+	ui.SetStore(eventStore)
 
 	bus := eventbus.New(1000)
 
@@ -79,6 +104,11 @@ func main() {
 
 	corrEngine := correlation.NewEngine(5 * time.Minute)
 	corrEngine.SetPatterns(initialPatterns)
+
+	// ── Settings page ─────────────────────────────────────────────────────────
+
+	settingsPage := NewSettingsPage(ui.app, eventStore)
+	ui.SetSettingsPage(settingsPage)
 
 	// ── Pattern editor TUI page ───────────────────────────────────────────────
 

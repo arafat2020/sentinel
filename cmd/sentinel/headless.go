@@ -12,6 +12,7 @@ import (
 	"github.com/arafat2020/sentinel/internal/eventbus"
 	"github.com/arafat2020/sentinel/internal/finding"
 	"github.com/arafat2020/sentinel/internal/monitor"
+	"github.com/arafat2020/sentinel/internal/store"
 
 	networkcollector "github.com/arafat2020/sentinel/internal/collector/network"
 	processCollector "github.com/arafat2020/sentinel/internal/collector/process"
@@ -28,7 +29,7 @@ import (
 //
 //	sentinel --headless
 //	nohup sudo sentinel --headless >> /var/log/sentinel.log 2>&1 &
-func runHeadless(ctx context.Context, initialPatterns []correlation.BehaviorPattern, patternsPath string) {
+func runHeadless(ctx context.Context, initialPatterns []correlation.BehaviorPattern, patternsPath string, s *store.Store) {
 	logger := log.New(os.Stdout, "", log.LstdFlags)
 	logger.Printf("sentinel %s starting in headless mode", version)
 
@@ -44,7 +45,11 @@ func runHeadless(ctx context.Context, initialPatterns []correlation.BehaviorPatt
 	procEngine := processDetector.NewEngine(registry)
 
 	sink := finding.NewSinkFunc(func(f *core.Finding) {
-		logger.Printf("FINDING severity=%s rule=%s  %s — %s", f.Severity, f.Rule, f.Title, f.Description)
+		line := fmt.Sprintf("severity=%s rule=%s  %s — %s", f.Severity, f.Rule, f.Title, f.Description)
+		logger.Printf("FINDING %s", line)
+		if s != nil {
+			s.Write("Findings", line)
+		}
 	})
 	coordinator := processDetector.NewCoordinator(procEngine, sink)
 

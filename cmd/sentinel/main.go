@@ -28,6 +28,7 @@ var version = "dev"
 
 func main() {
 	headless := flag.Bool("headless", false, "run without TUI; log findings to stdout (suitable for servers / systemd)")
+	desktop := flag.Bool("desktop", false, "run with Fyne native desktop UI instead of the TUI")
 	resetPW := flag.Bool("reset-password", false, "interactively reset the Sentinel password and exit")
 
 	// Query mode — reads from the DB and exits. Does not start any collectors.
@@ -78,9 +79,15 @@ func main() {
 	}
 
 	// ── Password gate ─────────────────────────────────────────────────────────
-	// --reset-password handles its own exit; the gate blocks start-up until the
-	// correct password is entered (or the new password is created on first run).
-	if eventStore != nil {
+	// Desktop mode handles its own GUI password gate; TUI/headless use the
+	// terminal-based gate. --reset-password is not supported in desktop mode.
+	if *desktop {
+		if *resetPW {
+			fmt.Fprintln(os.Stderr, "sentinel: --reset-password is not supported with --desktop; run without --desktop to reset")
+			os.Exit(1)
+		}
+		// password gate handled inside DesktopUI.Run()
+	} else if eventStore != nil {
 		runPasswordGate(eventStore, *resetPW)
 	} else if *resetPW {
 		fmt.Fprintln(os.Stderr, "sentinel: cannot reset password — database unavailable")
@@ -89,6 +96,11 @@ func main() {
 
 	if *headless {
 		runHeadless(ctx, initialPatterns, patternsPath, eventStore)
+		return
+	}
+
+	if *desktop {
+		runDesktopMode(ctx, initialPatterns, patternsPath, eventStore)
 		return
 	}
 

@@ -259,6 +259,30 @@ func (s *Store) Query(f QueryFilter) ([]Event, error) {
 	return events, rows.Err()
 }
 
+// HasPassword reports whether a password hash has been stored.
+func (s *Store) HasPassword() bool {
+	var v string
+	return s.db.QueryRow("SELECT value FROM settings WHERE key='password_hash'").Scan(&v) == nil
+}
+
+// GetPasswordHash returns the stored bcrypt hash, or "" if none is set.
+func (s *Store) GetPasswordHash() string {
+	var v string
+	if err := s.db.QueryRow("SELECT value FROM settings WHERE key='password_hash'").Scan(&v); err != nil {
+		return ""
+	}
+	return v
+}
+
+// SetPasswordHash persists a bcrypt hash as the active password.
+func (s *Store) SetPasswordHash(hash string) error {
+	_, err := s.db.Exec(`
+		INSERT INTO settings(key,value) VALUES('password_hash',?)
+		ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+		hash)
+	return err
+}
+
 // Close drains the pending write queue, flushes to disk, and closes the DB.
 func (s *Store) Close() error {
 	close(s.writeCh)

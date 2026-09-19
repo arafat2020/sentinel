@@ -29,3 +29,9 @@ tmp/
 
 # Signing artifacts — not useful without a real Apple Developer ID
 entitlements.plist
+
+# Sentinel runtime data — database contains event logs and the password hash;
+# never commit it to version control.
+sentinel.db
+sentinel.db-shm
+sentinel.db-wal

@@ -28,6 +28,7 @@ var version = "dev"
 
 func main() {
 	headless := flag.Bool("headless", false, "run without TUI; log findings to stdout (suitable for servers / systemd)")
+	resetPW := flag.Bool("reset-password", false, "interactively reset the Sentinel password and exit")
 
 	// Query mode — reads from the DB and exits. Does not start any collectors.
 	queryMode := flag.Bool("query", false, "query stored events and exit")
@@ -74,6 +75,16 @@ func main() {
 	} else {
 		defer eventStore.Close()
 		go eventStore.RunRetention(ctx)
+	}
+
+	// ── Password gate ─────────────────────────────────────────────────────────
+	// --reset-password handles its own exit; the gate blocks start-up until the
+	// correct password is entered (or the new password is created on first run).
+	if eventStore != nil {
+		runPasswordGate(eventStore, *resetPW)
+	} else if *resetPW {
+		fmt.Fprintln(os.Stderr, "sentinel: cannot reset password — database unavailable")
+		os.Exit(1)
 	}
 
 	if *headless {

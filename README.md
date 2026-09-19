@@ -19,8 +19,36 @@ Everything is visible in a live terminal TUI with seven tabs — no external ser
 - **Persistent event store** — all telemetry written to `sentinel.db` (SQLite); bounded 500-line ring buffer per tab prevents RAM growth
 - **Log query** — filter stored events by tab and date range from the CLI (`--query`)
 - **Headless mode** — run without a TUI for server/systemd deployments (`--headless`)
+- **Password protection** — bcrypt-hashed password gate; prompted on first install and every subsequent launch
 - **Settings tab** — configure log retention and SSH remote-access kill-switch from inside the TUI
 - **Terminal TUI** — seven live tabs (Process · Network · DNS · File · Findings · Patterns · Settings) navigable by keyboard
+
+---
+
+## Password Protection
+
+Sentinel requires a password to start. The first time the binary runs it prompts
+you to create one; every subsequent launch requires it before the TUI opens.
+
+```
+Welcome to Sentinel. Please create a password to protect the TUI.
+
+New password:
+Confirm password:
+Password set. Starting Sentinel...
+```
+
+Passwords are stored as **bcrypt hashes** (cost 12) inside `sentinel.db` — the
+plaintext is never written to disk.
+
+### Reset the password
+
+```bash
+sudo sentinel --reset-password
+```
+
+You will be asked for the current password (if one is set), then prompted to
+enter and confirm the new one. The command exits after a successful reset.
 
 ---
 
@@ -136,6 +164,20 @@ sudo ./sentinel
 ```
 
 Without the entitlement, file telemetry is silently skipped — all other tabs still work.
+
+---
+
+## CLI Flags
+
+| Flag | Description |
+|------|-------------|
+| `--headless` | Run without TUI; log findings to stdout (servers / systemd) |
+| `--reset-password` | Interactively reset the Sentinel password and exit |
+| `--query` | Query stored events and exit (see filters below) |
+| `--tab` | Filter `--query` by tab: `Process\|Network\|DNS\|File\|Findings` |
+| `--since` | Start date/time for `--query`, e.g. `2026-09-14T08:00:00` |
+| `--until` | End date/time for `--query` (default: now) |
+| `--limit` | Max rows for `--query` (default: 200) |
 
 ---
 
@@ -264,11 +306,13 @@ See [`docs/roadmap.md`](docs/roadmap.md) for full detail and architectural ratio
 sentinel/
 ├── cmd/sentinel/
 │   ├── main.go               # Platform-neutral entry point
+│   ├── password.go           # Password gate (first-run setup + login prompt)
 │   ├── ui.go                 # Terminal TUI (tview)
 │   ├── platform_linux.go     # Linux: fanotify + libpcap wiring
 │   ├── platform_darwin.go    # macOS: Endpoint Security + libpcap wiring
 │   └── platform_windows.go   # Windows: ReadDirectoryChangesW + Npcap wiring
 ├── internal/
+│   ├── auth/                 # bcrypt Hash / Verify helpers
 │   ├── core/                 # Shared domain types
 │   ├── eventbus/             # Bounded pub/sub event bus
 │   ├── collector/
@@ -284,11 +328,17 @@ sentinel/
 │   └── finding/              # Finding sink interface + adapters
 ├── docs/
 │   └── implementation-log.md # Detailed component reference
+├── configs/
+│   └── patterns.yaml         # YAML behavioral pattern definitions (hot-reloaded)
 ├── install.sh                # Linux one-liner installer
 ├── install.ps1               # Windows one-liner installer (PowerShell)
 └── .github/workflows/
     └── release.yml           # Multi-arch CI release pipeline
 ```
+
+> **Note:** `sentinel.db` (the SQLite event store and password hash) is created at
+> runtime in the working directory and is listed in `.gitignore` — it is never
+> committed to the repository.
 
 ---
 

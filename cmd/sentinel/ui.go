@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/arafat2020/sentinel/internal/core"
 	"github.com/arafat2020/sentinel/internal/store"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -13,17 +14,18 @@ import (
 
 // tabIndex maps friendly names to their position in the tabs slice.
 const (
-	tabProcess  = 0
-	tabNetwork  = 1
-	tabDNS      = 2
-	tabFile     = 3
-	tabFindings = 4
-	tabPatterns = 5
-	tabSettings = 6
-	tabCount    = 7
+	tabProcess   = 0
+	tabNetwork   = 1
+	tabDNS       = 2
+	tabFile      = 3
+	tabFindings  = 4
+	tabPatterns  = 5
+	tabSettings  = 6
+	tabResources = 7
+	tabCount     = 8
 )
 
-var tabNames = [tabCount]string{"Process", "Network", "DNS", "File", "Findings", "Patterns", "Settings"}
+var tabNames = [tabCount]string{"Process", "Network", "DNS", "File", "Findings", "Patterns", "Settings", "Resources"}
 
 // ringCap is the maximum number of formatted lines kept in memory per tab.
 // Older lines are evicted and live only in the SQLite store.
@@ -68,15 +70,18 @@ func (r *ringBuf) content() string {
 // type. All Add* methods are goroutine-safe.
 type UI struct {
 	app          *tview.Application
+	root         *tview.Flex
 	pages        *tview.Pages
 	views        [tabPatterns]*tview.TextView // telemetry text views (indices 0-4)
 	tabBar       *tview.TextView
+	tabBarWidth  int // last drawn screen width; event loop only
 	active       int
 	mu           sync.Mutex // guards active + rings
 	rings        [tabPatterns]ringBuf
 	store        *store.Store
 	patternsPage *PatternsPage
 	settingsPage *SettingsPage
+	resources    *ResourcesPage
 }
 
 // NewUI constructs the dashboard. Call SetPatternsPage and SetSettingsPage
@@ -97,6 +102,7 @@ func NewUI() *UI {
 
 	u.tabBar = tview.NewTextView().
 		SetDynamicColors(true).
+		SetWrap(false).
 		SetTextAlign(tview.AlignLeft)
 	u.tabBar.SetBorder(false)
 	u.tabBar.SetBackgroundColor(tcell.ColorDarkBlue)
@@ -106,17 +112,49 @@ func NewUI() *UI {
 		u.pages.AddPage(tabNames[i], tv, true, i == tabProcess)
 	}
 
-	root := tview.NewFlex().SetDirection(tview.FlexRow).
+	u.resources = NewResourcesPage()
+	u.pages.AddPage(tabNames[tabResources], u.resources.Root(), true, false)
+
+	u.root = tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(u.tabBar, 1, 0, false).
 		AddItem(u.pages, 0, 1, true)
 
-	u.app.SetRoot(root, true).EnableMouse(false)
+	u.app.SetRoot(u.root, true).EnableMouse(false)
 	u.renderTabBar()
+
+	// The tab bar is wider than a narrow terminal, so it scrolls sideways to
+	// keep the active tab on screen. Re-check whenever the width changes.
+	u.app.SetBeforeDrawFunc(func(screen tcell.Screen) bool {
+		if w, _ := screen.Size(); w != u.tabBarWidth {
+			u.tabBarWidth = w
+			u.scrollTabBar()
+		}
+		return false
+	})
 
 	u.app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		u.mu.Lock()
 		active := u.active
 		u.mu.Unlock()
+
+		// Every focusable widget on the Settings form needs the arrow keys,
+		// so the form would otherwise trap the user on that tab. Arriving on
+		// Settings therefore leaves focus on the tab bar; Enter steps into
+		// the form and Esc steps back out.
+		if active == tabSettings && u.settingsPage != nil {
+			focus := u.app.GetFocus()
+			switch {
+			case focus == u.tabBar:
+				switch event.Key() {
+				case tcell.KeyEnter, tcell.KeyTab, tcell.KeyDown:
+					u.app.SetFocus(u.pages)
+					return nil
+				}
+			case event.Key() == tcell.KeyEscape && u.settingsPage.FormHasFocus():
+				u.app.SetFocus(u.tabBar)
+				return nil
+			}
+		}
 
 		// Pass all keys through when focus is on any interactive widget.
 		// This covers InputField cursors, modal button navigation (←/→),
@@ -133,8 +171,11 @@ func NewUI() *UI {
 			u.switchTab((active + 1) % tabCount)
 			return nil
 		case tcell.KeyRune:
-			// Digit shortcuts only apply on plain telemetry tabs.
-			if event.Rune() >= '1' && event.Rune() <= '7' && active < tabPatterns {
+			// Digit shortcuts only apply where digits are not text entry:
+			// the plain telemetry tabs, the resource monitor, and Settings
+			// while focus is still on the tab bar.
+			if event.Rune() >= '1' && event.Rune() < '1'+tabCount &&
+				(active < tabPatterns || active == tabResources || u.app.GetFocus() == u.tabBar) {
 				u.switchTab(int(event.Rune() - '1'))
 				return nil
 			}
@@ -157,6 +198,7 @@ func (u *UI) SetPatternsPage(pp *PatternsPage) {
 // SetSettingsPage wires the settings editor. Call before Run.
 func (u *UI) SetSettingsPage(sp *SettingsPage) {
 	u.settingsPage = sp
+	sp.SetAppRoot(u.root)
 	u.pages.AddPage(tabNames[tabSettings], sp.Root(), true, false)
 }
 
@@ -170,7 +212,16 @@ func (u *UI) switchTab(idx int) {
 	u.mu.Lock()
 	u.active = idx
 	u.mu.Unlock()
+	if idx == tabResources {
+		// Samples that arrived while the tab was hidden were not rendered.
+		u.resources.Render()
+	}
 	u.pages.SwitchToPage(tabNames[idx])
+	if idx == tabSettings {
+		u.app.SetFocus(u.tabBar)
+	} else {
+		u.app.SetFocus(u.pages)
+	}
 	u.renderTabBar()
 }
 
@@ -180,15 +231,42 @@ func (u *UI) renderTabBar() {
 	u.mu.Unlock()
 
 	var bar string
-	for i, name := range tabNames {
+	for i := range tabNames {
 		if i == active {
-			bar += fmt.Sprintf("[black:white:b] %d:%s [-:-:-] ", i+1, name)
+			bar += fmt.Sprintf("[black:white:b]%s[-:-:-] ", tabLabel(i))
 		} else {
-			bar += fmt.Sprintf("[white:darkblue] %d:%s [-:-:-] ", i+1, name)
+			bar += fmt.Sprintf("[white:darkblue]%s[-:-:-] ", tabLabel(i))
 		}
 	}
-	bar += "[gray:darkblue]  ←/→ or 1-7 to switch[-:-:-]"
+	bar += "[gray:darkblue]  ←/→ or 1-8 to switch[-:-:-]"
 	u.tabBar.SetText(bar)
+	u.scrollTabBar()
+}
+
+func (u *UI) scrollTabBar() {
+	u.mu.Lock()
+	active := u.active
+	u.mu.Unlock()
+
+	u.tabBar.ScrollTo(0, tabBarOffset(active, u.tabBarWidth))
+}
+
+func tabLabel(idx int) string {
+	return fmt.Sprintf(" %d:%s ", idx+1, tabNames[idx])
+}
+
+// tabBarOffset returns how many cells the tab bar must scroll left so the
+// active tab is fully visible in a bar of the given width. It is 0 whenever
+// the tab already fits (and before the width is known).
+func tabBarOffset(active, width int) int {
+	end := 0
+	for i := 0; i <= active; i++ {
+		end += len(tabLabel(i)) + 1 // label plus separator
+	}
+	if width <= 0 || end <= width {
+		return 0
+	}
+	return end - width
 }
 
 // append writes a line to a telemetry tab. It:
@@ -251,3 +329,18 @@ func (u *UI) AddFile(line string) { u.append(tabFile, "orange", line) }
 
 // AddFinding logs a behavioral finding.
 func (u *UI) AddFinding(line string) { u.append(tabFindings, "red", line) }
+
+// UpdateResources hands a fresh resource snapshot to the Resources tab.
+// Goroutine-safe. Snapshots are display-only: they are neither persisted nor
+// kept in a ring buffer, and a redraw is only queued while the tab is visible.
+func (u *UI) UpdateResources(s *core.ResourceSnapshot) {
+	u.resources.SetSnapshot(s)
+
+	u.mu.Lock()
+	visible := u.active == tabResources
+	u.mu.Unlock()
+
+	if visible {
+		u.app.QueueUpdateDraw(u.resources.Render)
+	}
+}

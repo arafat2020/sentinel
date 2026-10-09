@@ -19,6 +19,7 @@ import (
 
 	networkcollector "github.com/arafat2020/sentinel/internal/collector/network"
 	processCollector "github.com/arafat2020/sentinel/internal/collector/process"
+	resourcecollector "github.com/arafat2020/sentinel/internal/collector/resource"
 	networkdetector "github.com/arafat2020/sentinel/internal/detection/network"
 	processDetector "github.com/arafat2020/sentinel/internal/detection/process"
 )
@@ -248,9 +249,18 @@ func main() {
 		coordinator,
 	)
 
+	// Live resource usage feeds the Resources tab directly: it bypasses the
+	// event bus and the store so samples never reach detection or SQLite.
+	resourceMonitor := monitor.NewResourceMonitor(
+		resourcecollector.NewCollector(),
+		2*time.Second,
+		ui.UpdateResources,
+	)
+
 	bus.Start(ctx)
 	go processMonitor.Run(ctx)
 	go netMonitor.Run(ctx)
+	go resourceMonitor.Run(ctx)
 
 	// Stop the UI when the OS signal fires.
 	go func() {

@@ -15,6 +15,7 @@ type SettingsPage struct {
 	app       *tview.Application
 	store     *store.Store
 	root      *tview.Flex
+	appRoot   tview.Primitive // whole dashboard; restored after a modal closes
 	form      *tview.Form
 	sshStatus *tview.TextView // live SSH status indicator
 }
@@ -29,6 +30,24 @@ func NewSettingsPage(app *tview.Application, s *store.Store) *SettingsPage {
 // Root returns the primitive to register with tview.Pages.
 func (sp *SettingsPage) Root() tview.Primitive { return sp.root }
 
+// SetAppRoot tells the page what to put back on screen after one of its
+// modals closes. Without it the page restores itself, dropping the tab bar.
+func (sp *SettingsPage) SetAppRoot(root tview.Primitive) { sp.appRoot = root }
+
+// FormHasFocus reports whether focus is inside the settings form (as opposed
+// to the tab bar or one of the page's modals).
+func (sp *SettingsPage) FormHasFocus() bool { return sp.form.HasFocus() }
+
+// closeModal returns from a modal to the dashboard with focus on the form.
+func (sp *SettingsPage) closeModal() {
+	if sp.appRoot == nil {
+		sp.app.SetRoot(sp.root, true)
+		return
+	}
+	sp.app.SetRoot(sp.appRoot, true)
+	sp.app.SetFocus(sp.form)
+}
+
 func (sp *SettingsPage) build() {
 	sp.form = tview.NewForm()
 	sp.form.SetBorder(true).SetTitle(" Settings ").SetTitleAlign(tview.AlignLeft)
@@ -36,7 +55,7 @@ func (sp *SettingsPage) build() {
 
 	hint := tview.NewTextView().
 		SetDynamicColors(true).
-		SetText("[gray]  Tab/Enter = navigate    Ctrl+S = Save    Ctrl+F = Flush    Ctrl+D = Disable SSH    Ctrl+E = Enable SSH[-]")
+		SetText("[gray]  Enter = edit    Esc = back to tabs    Tab = next field    Ctrl+S = Save    Ctrl+F = Flush    Ctrl+D = Disable SSH    Ctrl+E = Enable SSH[-]")
 	hint.SetBorder(false)
 
 	sp.root = tview.NewFlex().SetDirection(tview.FlexRow).
@@ -158,7 +177,7 @@ func (sp *SettingsPage) confirmSSHAction(enable bool) {
 		SetDoneFunc(func(idx int, label string) {
 			// Return to the settings page first — no extra Draw() call here,
 			// tview redraws naturally after the event handler returns.
-			sp.app.SetRoot(sp.root, true)
+			sp.closeModal()
 			if idx == 0 || label == "Cancel" {
 				return
 			}
@@ -228,7 +247,7 @@ func (sp *SettingsPage) showError(msg string) {
 		SetText("[red]" + tview.Escape(msg) + "[-]").
 		AddButtons([]string{"OK"}).
 		SetDoneFunc(func(_ int, _ string) {
-			sp.app.SetRoot(sp.root, true)
+			sp.closeModal()
 		})
 	sp.app.SetRoot(modal, false)
 }
@@ -238,7 +257,7 @@ func (sp *SettingsPage) showInfo(msg string) {
 		SetText(tview.Escape(msg)).
 		AddButtons([]string{"OK"}).
 		SetDoneFunc(func(_ int, _ string) {
-			sp.app.SetRoot(sp.root, true)
+			sp.closeModal()
 		})
 	sp.app.SetRoot(modal, false)
 }

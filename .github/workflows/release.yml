@@ -19,8 +19,18 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Install libpcap
-        run: sudo apt-get update -qq && sudo apt-get install -y libpcap-dev
+      # libpcap: DNS capture. The rest are the headers and libraries the Fyne
+      # desktop UI (--desktop) is compiled against: OpenGL, X11 and Wayland.
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            libpcap-dev \
+            pkg-config \
+            libgl1-mesa-dev libegl1-mesa-dev libgles2-mesa-dev \
+            xorg-dev \
+            libxkbcommon-dev \
+            libwayland-dev
 
       - name: Build
         run: |
@@ -50,13 +60,27 @@ jobs:
         run: |
           sudo dpkg --add-architecture arm64
           sudo bash .github/scripts/setup-arm64-apt.sh
-          sudo apt-get install -y gcc-aarch64-linux-gnu libpcap-dev:arm64
+          # Same libraries as the amd64 job, in their arm64 builds. The X11
+          # packages are listed individually instead of via the xorg-dev
+          # metapackage, to keep the foreign-architecture install small.
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu \
+            pkg-config \
+            libpcap-dev:arm64 \
+            libgl1-mesa-dev:arm64 libegl1-mesa-dev:arm64 libgles2-mesa-dev:arm64 \
+            libx11-dev:arm64 libxext-dev:arm64 libxcursor-dev:arm64 libxrandr-dev:arm64 \
+            libxinerama-dev:arm64 libxi-dev:arm64 libxxf86vm-dev:arm64 \
+            libxkbcommon-dev:arm64 \
+            libwayland-dev:arm64
 
       - name: Build
         run: |
           mkdir -p dist
+          # Point pkg-config at the arm64 .pc files only, so cgo never picks
+          # up the runner's own amd64 libraries.
           CGO_ENABLED=1 GOOS=linux GOARCH=arm64 \
             CC=aarch64-linux-gnu-gcc \
+            PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig \
             go build \
               -ldflags="-s -w -X main.version=${{ github.ref_name }}" \
               -o dist/sentinel-linux-arm64 \

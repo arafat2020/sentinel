@@ -47,9 +47,12 @@ func runHeadless(ctx context.Context, patterns config.PatternSet, patternsPath s
 
 	sink := finding.NewSinkFunc(func(f *core.Finding) {
 		line := fmt.Sprintf("severity=%s rule=%s  %s — %s", f.Severity, f.Rule, f.Title, f.Description)
+		if roles := finding.FormatRoles(f.Evidence); roles != "" {
+			line += fmt.Sprintf("  roles=[%s] events=%d", roles, len(f.Evidence.Events))
+		}
 		logger.Printf("FINDING %s", line)
 		if s != nil {
-			s.Write("Findings", line)
+			s.WriteFinding(line, f.Evidence)
 		}
 	})
 	coordinator := processDetector.NewCoordinator(procEngine, sink)
@@ -60,6 +63,9 @@ func runHeadless(ctx context.Context, patterns config.PatternSet, patternsPath s
 	corrEngine.SetPatterns(patterns.Patterns)
 	_ = corrEngine.SetExclusions(patterns.Exclusions)
 
+	for _, warning := range patterns.Warnings {
+		logger.Printf("PATTERN WARNING %s: %s", patternsPath, warning)
+	}
 	for _, problem := range patternProblems(patterns.Errors, patterns.Patterns) {
 		logger.Printf("PATTERN ERROR %s: %s (pattern skipped)", patternsPath, problem)
 	}

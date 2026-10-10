@@ -697,8 +697,14 @@ func (pp *PatternsPage) openRelationshipDetailEditor(parentPage string, relIdx i
 	form := tview.NewForm()
 	form.SetBorder(true).SetTitle(" Edit Relationship ").SetTitleAlign(tview.AlignLeft)
 
-	form.AddDropDown("Type", []string{"SPAWNED"}, 0, func(_ string, _ int) {
-		rel.Type = correlation.RelationshipSpawned
+	// The editor only creates SPAWNED relationships, but it must not turn
+	// one written as DESCENDANT in the YAML file into SPAWNED by opening it.
+	relType := rel.Type
+	if relType == "" {
+		relType = correlation.RelationshipSpawned
+	}
+	form.AddDropDown("Type", []string{string(relType)}, 0, func(_ string, _ int) {
+		rel.Type = relType
 	})
 
 	parentIdx := 0

@@ -1015,9 +1015,66 @@ func TestIncrementalEvaluationMatchesFullEvaluation(t *testing.T) {
 			}}}},
 			MaxFindingsPerWindow: 2,
 		},
+		// A relationship spanning generations, a threshold, and a sequence
+		// with a capture.
+		BehaviorPattern{
+			Name: "deep-descendant-connects",
+			Processes: []ProcessPattern{
+				named("top", "a"),
+				named("bottom", "c", core.EventNetworkConnect),
+			},
+			Relationships: []RelationshipPattern{
+				{Type: RelationshipDescendant, Parent: "top", Child: "bottom", MaxDepth: 4},
+			},
+		},
+		BehaviorPattern{
+			Name: "dns-burst",
+			Processes: []ProcessPattern{{
+				ID:    "p",
+				Match: &MatchBlock{Fields: []FieldPredicate{{Field: "name", Predicate: Predicate{In: []string{"a", "b", "node"}}}}},
+				Events: []EventPattern{
+					{Type: core.EventDNSQuery, Count: 2, Distinct: "domain", Within: 20 * time.Second},
+				},
+			}},
+		},
+		BehaviorPattern{
+			Name: "connect-count",
+			Processes: []ProcessPattern{{
+				ID:     "p",
+				Events: []EventPattern{{Type: core.EventNetworkConnect, Count: 2, Within: 25 * time.Second}},
+			}},
+			MaxFindingsPerWindow: 4,
+		},
+		BehaviorPattern{
+			Name:      "reconnect-same-port-after-lookup",
+			Processes: []ProcessPattern{{ID: "p"}},
+			Sequence: &SequencePattern{
+				Within: 20 * time.Second,
+				Steps: []SequenceStep{
+					{Role: "p", Type: core.EventDNSQuery},
+					{Role: "p", Type: core.EventNetworkConnect, Capture: "first"},
+					{Role: "p", Type: core.EventNetworkConnect, Where: &MatchBlock{Fields: []FieldPredicate{
+						{Field: "remote_port", Predicate: Predicate{Eq: stringPtr("$first.remote_port")}},
+					}}},
+				},
+			},
+		},
+		BehaviorPattern{
+			Name:          "parent-then-child-activity",
+			Processes:     []ProcessPattern{{ID: "parent"}, {ID: "child"}},
+			Relationships: []RelationshipPattern{spawned("parent", "child")},
+			Sequence: &SequencePattern{
+				OrderTolerance: tolerance(0),
+				Steps: []SequenceStep{
+					{Role: "parent", Type: core.EventNetworkConnect},
+					{Role: "child", Type: core.EventDNSQuery},
+				},
+			},
+			MaxFindingsPerWindow: 6,
+		},
 	)
 	for _, pattern := range patterns {
-		if err := pattern.Validate(); err != nil {
+		if err := pattern.ValidateFor(testWindow); err != nil {
 			t.Fatalf("pattern %q: %v", pattern.Name, err)
 		}
 	}
@@ -1051,6 +1108,7 @@ func TestIncrementalEvaluationMatchesFullEvaluation(t *testing.T) {
 	var live []core.Process
 	total := 0
 	sawRateLimitSummary := false
+	fired := map[string]int{}
 
 	for step := 0; step < 4000; step++ {
 		ts := at(time.Duration(step) * 250 * time.Millisecond)
@@ -1084,7 +1142,21 @@ func TestIncrementalEvaluationMatchesFullEvaluation(t *testing.T) {
 		}
 
 		full.rescan = true
-		got, want := findingKeys(incremental.detect(ts)), findingKeys(full.detect(ts))
+		fullFindings := full.detect(ts)
+		for _, f := range fullFindings {
+			if len(f.Evidence.Processes) == 0 {
+				continue // a rate-limit summary
+			}
+			fired[f.Rule]++
+
+			// Note when the descendant rule binds processes that are not
+			// parent and child.
+			if f.Rule == "deep-descendant-connects" && f.Evidence.Roles["bottom"].PPID != f.Evidence.Roles["top"].PID {
+				fired[f.Rule+"/deep"]++
+			}
+		}
+
+		got, want := findingKeys(incremental.detect(ts)), findingKeys(fullFindings)
 		if got != want {
 			t.Fatalf("step %d (%s pid %d): incremental found [%s], full evaluation found [%s]",
 				step, eventType, p.PID, got, want)
@@ -1117,6 +1189,25 @@ func TestIncrementalEvaluationMatchesFullEvaluation(t *testing.T) {
 	}
 	if !sawRateLimitSummary {
 		t.Fatal("no rate-limit summary was emitted; the comparison is not exercising the rate limit")
+	}
+
+	// Each of the temporal and structural features must actually have
+	// produced findings, or agreeing on them proves nothing.
+	for _, rule := range []string{
+		"deep-descendant-connects", "dns-burst", "connect-count",
+		"reconnect-same-port-after-lookup", "parent-then-child-activity",
+	} {
+		if fired[rule] == 0 {
+			t.Errorf("rule %q never fired in the test stream", rule)
+		}
+	}
+	if fired["deep-descendant-connects/deep"] == 0 {
+		t.Error("the DESCENDANT rule never matched across more than one generation")
+	}
+
+	if got, want := incremental.Metrics(), full.Metrics(); got.ThresholdCounters != want.ThresholdCounters ||
+		got.ThresholdCountersEvicted != want.ThresholdCountersEvicted {
+		t.Errorf("threshold counters differ: incremental %+v, full %+v", got, want)
 	}
 }
 

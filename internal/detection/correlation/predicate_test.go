@@ -374,12 +374,13 @@ func TestMatchBlockCompileErrors(t *testing.T) {
 		block     *MatchBlock
 		want      []string
 	}{
-		"dns field on a network event": {core.EventNetworkConnect, block(fieldIs("domain", Predicate{Eq: sp("x")})), []string{"where.domain", "unknown field", "remote_addr"}},
-		"network field on a dns event": {core.EventDNSQuery, block(fieldIs("remote_port", Predicate{Eq: sp("53")})), []string{"where.remote_port", "unknown field", "domain"}},
-		"gt on path":                   {core.EventFileCreate, block(fieldIs("path", Predicate{Gt: sp("1")})), []string{"where.path", `"gt" is not valid for a string field`}},
-		"contains on a port":           {core.EventNetworkConnect, block(fieldIs("remote_port", Predicate{Contains: sp("4")})), []string{"where.remote_port", `"contains" is not valid for a numeric field`}},
-		"cidr on protocol":             {core.EventNetworkConnect, block(fieldIs("protocol", Predicate{CIDR: []string{"::/0"}})), []string{"where.protocol", `"cidr" is not valid`}},
-		"event type with no fields":    {core.EventProcessStart, block(fieldIs("path", Predicate{Eq: sp("x")})), []string{"where", "PROCESS_START events have no fields"}},
+		"dns field on a network event":  {core.EventNetworkConnect, block(fieldIs("domain", Predicate{Eq: sp("x")})), []string{"where.domain", "unknown field", "remote_addr"}},
+		"network field on a dns event":  {core.EventDNSQuery, block(fieldIs("remote_port", Predicate{Eq: sp("53")})), []string{"where.remote_port", "unknown field", "domain"}},
+		"gt on path":                    {core.EventFileCreate, block(fieldIs("path", Predicate{Gt: sp("1")})), []string{"where.path", `"gt" is not valid for a string field`}},
+		"contains on a port":            {core.EventNetworkConnect, block(fieldIs("remote_port", Predicate{Contains: sp("4")})), []string{"where.remote_port", `"contains" is not valid for a numeric field`}},
+		"cidr on protocol":              {core.EventNetworkConnect, block(fieldIs("protocol", Predicate{CIDR: []string{"::/0"}})), []string{"where.protocol", `"cidr" is not valid`}},
+		"event type with no fields":     {core.EventPersistenceChange, block(fieldIs("path", Predicate{Eq: sp("x")})), []string{"where", "PERSISTENCE_CHANGE events have no fields"}},
+		"file field on a process event": {core.EventProcessStart, block(fieldIs("path", Predicate{Eq: sp("x")})), []string{"where.path", "unknown field", "cmdline, exe, name, user"}},
 	}
 	for name, c := range eventErrors {
 		_, err := compileEventWhere(c.block, c.eventType, "where")

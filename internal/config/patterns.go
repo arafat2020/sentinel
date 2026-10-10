@@ -28,6 +28,24 @@ type PatternDef struct {
 	Relationships        []RelationshipDef   `yaml:"relationships"`
 	Exclude              []RoleExclusionDef  `yaml:"exclude,omitempty"`
 	MaxFindingsPerWindow int                 `yaml:"max_findings_per_window,omitempty"`
+	Sequence             *SequenceDef        `yaml:"sequence,omitempty"`
+}
+
+// SequenceDef is the YAML representation of a SequencePattern.
+// OrderTolerance is a pointer because leaving it out (use the default) and
+// writing 0s (no tolerance) mean different things.
+type SequenceDef struct {
+	Within         string    `yaml:"within,omitempty"`
+	OrderTolerance *string   `yaml:"order_tolerance,omitempty"`
+	Steps          []StepDef `yaml:"steps"`
+}
+
+// StepDef is the YAML representation of a SequenceStep.
+type StepDef struct {
+	Role    string    `yaml:"role"`
+	Type    string    `yaml:"type"`
+	Where   yaml.Node `yaml:"where,omitempty"`
+	Capture string    `yaml:"capture,omitempty"`
 }
 
 // ProcessPatternDef is the YAML representation of a ProcessPattern.
@@ -337,7 +355,13 @@ func convertPattern(def PatternDef) (correlation.BehaviorPattern, error) {
 		exclude = append(exclude, correlation.RoleExclusion{Role: xd.Role, Match: match})
 	}
 
+	sequence, err := convertSequence(def.Sequence)
+	if err != nil {
+		return correlation.BehaviorPattern{}, fmt.Errorf("sequence: %w", err)
+	}
+
 	pattern := correlation.BehaviorPattern{
+		Sequence:             sequence,
 		Name:                 def.Name,
 		Severity:             core.Severity(def.Severity),
 		Title:                def.Title,
@@ -404,6 +428,70 @@ func convertProcessPattern(def ProcessPatternDef) (correlation.ProcessPattern, e
 		Match:      match,
 		Events:     events,
 	}, nil
+}
+
+func convertSequence(def *SequenceDef) (*correlation.SequencePattern, error) {
+	if def == nil {
+		return nil, nil
+	}
+
+	within, err := parseDuration(def.Within)
+	if err != nil {
+		return nil, fmt.Errorf("within: %w", err)
+	}
+
+	sequence := &correlation.SequencePattern{Within: within}
+
+	if def.OrderTolerance != nil {
+		// Unlike a span, a tolerance of zero is meaningful: strict order.
+		tolerance, err := time.ParseDuration(*def.OrderTolerance)
+		if err != nil {
+			return nil, fmt.Errorf("order_tolerance: %q is not a duration (write it like 0s, 3s or 500ms)", *def.OrderTolerance)
+		}
+		sequence.OrderTolerance = &tolerance
+	}
+
+	for i, sd := range def.Steps {
+		where, err := decodeMatchBlock(&sd.Where, "where")
+		if err != nil {
+			return nil, fmt.Errorf("steps[%d] (%s): %w", i, sd.Type, err)
+		}
+		sequence.Steps = append(sequence.Steps, correlation.SequenceStep{
+			Role:    sd.Role,
+			Type:    core.EventType(sd.Type),
+			Where:   where,
+			Capture: sd.Capture,
+		})
+	}
+
+	return sequence, nil
+}
+
+func unconvertSequence(sequence *correlation.SequencePattern) *SequenceDef {
+	if sequence == nil {
+		return nil
+	}
+
+	def := &SequenceDef{Within: formatDuration(sequence.Within)}
+
+	if sequence.OrderTolerance != nil {
+		tolerance := formatDuration(*sequence.OrderTolerance)
+		if tolerance == "" {
+			tolerance = "0s"
+		}
+		def.OrderTolerance = &tolerance
+	}
+
+	for _, step := range sequence.Steps {
+		def.Steps = append(def.Steps, StepDef{
+			Role:    step.Role,
+			Type:    string(step.Type),
+			Where:   encodeMatchBlock(step.Where),
+			Capture: step.Capture,
+		})
+	}
+
+	return def
 }
 
 // parseDuration reads a span such as "60s" or "2m30s". An empty string is
@@ -501,6 +589,7 @@ func unconvertPattern(p correlation.BehaviorPattern) PatternDef {
 	}
 
 	return PatternDef{
+		Sequence:             unconvertSequence(p.Sequence),
 		Name:                 p.Name,
 		Severity:             string(p.Severity),
 		Title:                p.Title,

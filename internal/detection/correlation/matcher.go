@@ -19,6 +19,9 @@ type Match struct {
 	// Processes are the bound processes, in the order the pattern lists its
 	// roles.
 	Processes []core.Process
+	// Events are the events that satisfied the pattern's sequence, one per
+	// step and in step order. It is nil for a pattern without a sequence.
+	Events []core.Event
 }
 
 // MatchProcess reports whether the process meets the role's conditions and
@@ -188,6 +191,11 @@ type world interface {
 	// thresholdMet reports whether the process currently meets a counting
 	// requirement.
 	thresholdMet(requirement *compiledEvent, process core.ProcessIdentity) bool
+	// sequenceNotFound is told when roles were bound but no events
+	// satisfied the pattern's sequence, so that an implementation can count
+	// the cases where that may be for want of retained events or of search
+	// budget rather than because the sequence did not happen.
+	sequenceNotFound(processes []core.ProcessIdentity, searchExhausted bool)
 }
 
 // find searches w for ways of binding the pattern's roles.
@@ -451,7 +459,55 @@ func (s *search) emit() {
 		processes[i] = *process
 	}
 
-	s.matches = append(s.matches, Match{Processes: processes})
+	match := Match{Processes: processes}
+
+	if s.pattern.sequence != nil {
+		events, ok := s.findSequence()
+		if !ok {
+			return
+		}
+		match.Events = events
+	}
+
+	s.matches = append(s.matches, match)
+}
+
+// findSequence looks, among the in-window events of the bound processes,
+// for one event per step that satisfies the pattern's sequence. It is run
+// only once every role is bound, so the sequence is a constraint on a
+// binding rather than something tracked as events arrive: events that reach
+// the engine out of order need no special handling.
+func (s *search) findSequence() ([]core.Event, bool) {
+	sequence := s.pattern.sequence
+
+	q := sequenceSearch{
+		sequence:   sequence,
+		candidates: make([][]core.Event, len(sequence.steps)),
+		chosen:     make([]*core.Event, len(sequence.steps)),
+		captured:   make([]*core.Event, sequence.captures),
+		budget:     maxSequenceSearch,
+	}
+
+	for i, step := range sequence.steps {
+		// A process has one chain in an engine; a caller holding its own
+		// chains is expected to keep a process's events together.
+		for _, chain := range s.world.chainsOf(s.bound[step.role]) {
+			q.candidates[i] = s.window(chain)
+			break
+		}
+	}
+
+	if !q.find() {
+		s.world.sequenceNotFound(s.bound, q.exhausted)
+		return nil, false
+	}
+
+	events := make([]core.Event, len(q.chosen))
+	for i, event := range q.chosen {
+		events[i] = *event
+	}
+
+	return events, true
 }
 
 // sliceWorld is a world built from a list of relationships, for callers that
@@ -532,6 +588,8 @@ func (w *sliceWorld) eachProcess(visit func(core.ProcessIdentity) bool) {
 func (w *sliceWorld) chainsOf(identity core.ProcessIdentity) []*Chain {
 	return w.chains[identity]
 }
+
+func (w *sliceWorld) sequenceNotFound([]core.ProcessIdentity, bool) {}
 
 // thresholdMet counts over the events the chains happen to hold: there is no
 // engine here keeping counters as events arrive.

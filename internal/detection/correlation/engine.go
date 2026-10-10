@@ -136,6 +136,15 @@ type Metrics struct {
 	// ThresholdCounterCapHits counts matching events that were not counted
 	// because maxThresholdCounters counters already existed.
 	ThresholdCounterCapHits uint64
+
+	// SequencesPossiblyTruncated counts evaluations in which roles were
+	// bound but no sequence was found, and one of the bound processes had
+	// had in-window events discarded to stay within MaxEventsPerType. The
+	// sequence may have happened and been missed.
+	SequencesPossiblyTruncated uint64
+	// SequenceSearchesAborted counts sequence searches given up after
+	// maxSequenceSearch candidate events without an answer.
+	SequenceSearchesAborted uint64
 }
 
 // Option configures an Engine.
@@ -802,7 +811,7 @@ func (e *Engine) DetectBehaviors() []core.Finding {
 				continue
 			}
 
-			findings = append(findings, e.finding(pattern.BehaviorPattern, match, now))
+			findings = append(findings, e.finding(pattern, match, now))
 		}
 	}
 
@@ -901,11 +910,16 @@ func (e *Engine) rateLimitSummaries(now time.Time) []core.Finding {
 	return findings
 }
 
-func (e *Engine) finding(pattern BehaviorPattern, match Match, now time.Time) core.Finding {
+func (e *Engine) finding(pattern *compiledPattern, match Match, now time.Time) core.Finding {
 	processes := append([]core.Process(nil), match.Processes...)
 
 	// The role listed last is the one the pattern leads up to.
 	subject := processes[len(processes)-1]
+
+	roles := make(map[string]core.Process, len(processes))
+	for i, process := range processes {
+		roles[pattern.Processes[i].ID] = process
+	}
 
 	return core.Finding{
 		ID:          e.nextFindingID(now),
@@ -917,8 +931,77 @@ func (e *Engine) finding(pattern BehaviorPattern, match Match, now time.Time) co
 		Evidence: core.Evidence{
 			Process:   &subject,
 			Processes: processes,
+			Roles:     roles,
+			Events:    e.evidenceEvents(pattern, match, now),
 		},
 	}
+}
+
+// MaxEvidenceEvents is the most events a finding carries as evidence.
+const MaxEvidenceEvents = 50
+
+// evidenceEvents gathers the events behind a match: the sequence's events in
+// step order, then one example of each event requirement, then the most
+// recent events counted towards each threshold.
+func (e *Engine) evidenceEvents(pattern *compiledPattern, match Match, now time.Time) []core.Event {
+	cutoff := now.Add(-e.window)
+	events := append([]core.Event(nil), match.Events...)
+
+	add := func(event core.Event) bool {
+		if len(events) >= MaxEvidenceEvents {
+			return false
+		}
+		events = append(events, event)
+		return true
+	}
+
+	// One example of each ordinary requirement.
+	for r := range pattern.roles {
+		role := &pattern.roles[r]
+		identity := match.Processes[r].Identity()
+
+		for i := range role.events {
+			if example, ok := e.exampleEvent(&role.events[i], identity, cutoff); ok && !add(example) {
+				return events
+			}
+		}
+	}
+
+	// The latest events counted towards each threshold.
+	for r := range pattern.roles {
+		role := &pattern.roles[r]
+		identity := match.Processes[r].Identity()
+
+		for i := range role.thresholds {
+			key := counterKey{requirement: role.thresholds[i].threshold.id, process: identity}
+			counter := e.counters[key]
+			if counter == nil {
+				continue
+			}
+			for _, recent := range counter.recentEvents() {
+				if !add(recent) {
+					return events
+				}
+			}
+		}
+	}
+
+	return events
+}
+
+// exampleEvent returns the earliest in-window event of a process that meets
+// an event requirement.
+func (e *Engine) exampleEvent(requirement *compiledEvent, identity core.ProcessIdentity, cutoff time.Time) (core.Event, bool) {
+	for _, chain := range e.chains[identity] {
+		events := chain.EventsAfter(cutoff)
+		for i := range events {
+			if requirement.matches(&events[i]) {
+				return events[i], true
+			}
+		}
+	}
+
+	return core.Event{}, false
 }
 
 // suppress records that a finding was emitted now.
@@ -1145,6 +1228,21 @@ func (w engineWorld) eachProcess(visit func(core.ProcessIdentity) bool) {
 
 func (w engineWorld) chainsOf(identity core.ProcessIdentity) []*Chain {
 	return w.engine.chains[identity]
+}
+
+func (w engineWorld) sequenceNotFound(processes []core.ProcessIdentity, searchExhausted bool) {
+	if searchExhausted {
+		w.engine.metrics.SequenceSearchesAborted++
+	}
+
+	for _, identity := range processes {
+		for _, chain := range w.engine.chains[identity] {
+			if chain.DroppedAfter(w.cutoff) {
+				w.engine.metrics.SequencesPossiblyTruncated++
+				return
+			}
+		}
+	}
 }
 
 func (w engineWorld) thresholdMet(requirement *compiledEvent, process core.ProcessIdentity) bool {

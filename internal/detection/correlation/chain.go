@@ -19,6 +19,16 @@ const MaxEventsPerType = 64
 type Chain struct {
 	identity core.ProcessIdentity
 	events   []core.Event
+	// lastDropped is the timestamp of the most recent event discarded to
+	// keep a type within MaxEventsPerType.
+	lastDropped time.Time
+}
+
+// DroppedAfter reports whether the chain has discarded, for want of room, an
+// event timestamped after cutoff. If so, the chain no longer holds
+// everything its process did since then.
+func (c *Chain) DroppedAfter(cutoff time.Time) bool {
+	return c.lastDropped.After(cutoff)
 }
 
 func NewChain(event core.Event) *Chain {
@@ -74,6 +84,9 @@ func (c *Chain) enforceTypeCap(eventType core.EventType) {
 		if c.events[i].Type != eventType {
 			i++
 			continue
+		}
+		if c.events[i].Timestamp.After(c.lastDropped) {
+			c.lastDropped = c.events[i].Timestamp
 		}
 		c.events = append(c.events[:i], c.events[i+1:]...)
 		count--

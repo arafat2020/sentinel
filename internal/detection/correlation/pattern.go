@@ -14,7 +14,14 @@ type BehaviorPattern struct {
 type ProcessPattern struct {
 	ID         string
 	Conditions []Condition
-	Events     []EventPattern
+	// Events are the event types the process must have produced inside the
+	// correlation window. An empty list requires no activity at all.
+	Events []EventPattern
+	// Ordered makes Events a sequence: the types must occur in the listed
+	// order (other events may come between them), each matched by a distinct
+	// event. When false, the default, each listed type must simply occur at
+	// least once, in any order.
+	Ordered bool
 }
 
 type EventPattern struct {

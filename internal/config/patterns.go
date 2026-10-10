@@ -31,6 +31,10 @@ type ProcessPatternDef struct {
 	ID         string         `yaml:"id"`
 	Conditions []ConditionDef `yaml:"conditions"`
 	Events     []EventDef     `yaml:"events"`
+	// Ordered requires Events to occur in the listed order. It is optional
+	// and omitted when false, so files written before it existed are read
+	// and rewritten unchanged.
+	Ordered bool `yaml:"ordered,omitempty"`
 }
 
 // ConditionDef is the YAML representation of a Condition.
@@ -169,6 +173,7 @@ func convertProcessPattern(def ProcessPatternDef) (correlation.ProcessPattern, e
 		ID:         def.ID,
 		Conditions: conds,
 		Events:     events,
+		Ordered:    def.Ordered,
 	}, nil
 }
 
@@ -195,7 +200,7 @@ func unconvertPattern(p correlation.BehaviorPattern) PatternDef {
 		for j, e := range pp.Events {
 			events[j] = EventDef{Type: string(e.Type)}
 		}
-		procs[i] = ProcessPatternDef{ID: pp.ID, Conditions: conds, Events: events}
+		procs[i] = ProcessPatternDef{ID: pp.ID, Conditions: conds, Events: events, Ordered: pp.Ordered}
 	}
 
 	rels := make([]RelationshipDef, len(p.Relationships))

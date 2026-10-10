@@ -20,7 +20,8 @@ window (default: 5 minutes).
 Each pattern defines one or more **process roles** (e.g. `parent`, `child`).
 A role is an abstract slot that matches a real running process if all of its
 conditions are satisfied and all of its required event types have been seen in
-that process's event chain.
+that process's event chain **inside the correlation window** (see
+[Correlation window](#correlation-window)).
 
 ### Condition
 
@@ -37,7 +38,11 @@ A role with **no conditions** matches any process.
 ### Event requirement
 
 An event requirement says "this role can only be filled by a process that has
-produced at least one event of this type". Available event types:
+produced at least one event of this type inside the correlation window".
+By default the order of the events does not matter; add `ordered: true` to a
+role to require them in the listed order (see
+[Ordered event sequences](#ordered-event-sequences)). A role with no event
+requirements places no demand on activity. Available event types:
 
 | Event type | When it fires |
 |---|---|
@@ -106,8 +111,36 @@ is currently no OR within a role — to express OR, define two separate patterns
 
 ### Multiple event requirements on one role
 
-All required event types must appear in the process's event chain (AND logic).
-The events do not need to appear in any particular order.
+All required event types must appear in the process's event chain inside the
+correlation window (AND logic). The events do not need to appear in any
+particular order, and listing the same type twice is the same as listing it
+once, unless the role is `ordered`.
+
+### Ordered event sequences
+
+Add `ordered: true` to a role to turn its event list into a sequence:
+
+```yaml
+- id: child
+  ordered: true
+  events:
+    - type: DNS_QUERY
+    - type: NETWORK_CONNECT
+```
+
+The process must then have produced a `DNS_QUERY` followed later by a
+`NETWORK_CONNECT`, both inside the window. Other events may occur in between.
+Each step needs its own event, so listing `NETWORK_CONNECT` twice requires two
+connections. Events are ordered by their timestamps; events with identical
+timestamps count in the order Sentinel received them.
+
+Ordering applies within one role only. It does not constrain the order of
+events between a parent and its child.
+
+`ordered` is optional and defaults to `false`. Existing pattern files need no
+changes and keep their any-order behavior. The TUI pattern editor does not yet
+have a control for it: set it in `configs/patterns.yaml`. The editor preserves
+the flag when it saves a pattern.
 
 ### Multiple relationships
 
@@ -218,11 +251,51 @@ saved automatically.
 
 ---
 
+## Correlation window
+
+The engine has a single correlation window, 5 minutes in the shipped
+configuration. It is not yet configurable per pattern.
+
+At any moment, an event is **in the window** if it is strictly less than one
+window old. A pattern matches only if every event it requires, for every role,
+is in the window at the same moment. Consequences:
+
+- All events contributing to a finding lie within one window of each other.
+- An event older than the window can never contribute to a finding, however
+  long Sentinel has been running.
+- The `SPAWNED` relationship itself does not expire while the child is alive:
+  a child spawned hours ago still counts as its parent's child. The
+  relationship is dropped one window after the child exits.
+
+Timestamps are handled defensively:
+
+- An event with no timestamp is treated as happening when Sentinel received it.
+- An event dated in the future is treated as happening when it was received.
+- An event that is already a full window old when it arrives is ignored.
+- If the system clock steps backwards, the engine keeps using the latest time
+  it has seen, so expired events are not revived.
+
+Processes are identified by PID **and** start time. When a PID is reused, the
+new process does not inherit the previous one's events, and a child is never
+attributed to an earlier holder of its parent's PID.
+
+Memory is bounded: only in-window events are kept, at most 64 events of each
+type per process (the newest are kept), and state for an exited process is
+released one window after it exits.
+
+---
+
 ## Suppression / deduplication
 
-Once a pattern fires, the same pattern will not fire again until one full
+Once a pattern fires, the same rule will not fire again until one full
 **correlation window** (5 minutes by default) has elapsed. This prevents a
-single sustained behaviour from flooding the Findings tab.
+sustained behavior from flooding the Findings tab.
+
+Suppression is per rule, not per process: a second, unrelated set of processes
+matching the same rule inside the suppression window does not produce a second
+finding. After the window, a rule fires again only if the behavior is still
+happening or happens again, because the events behind the first finding have
+left the window by then.
 
 Editing and saving a pattern via the TUI clears the suppression cache, so the
 updated pattern can fire immediately.

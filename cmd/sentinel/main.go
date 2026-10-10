@@ -152,7 +152,8 @@ func main() {
 	lifecycleDetector := processDetector.NewLifecycleDetector()
 
 	registry := processDetector.NewRegistry()
-	registry.Register(processDetector.NewSuspiciousChildProcessRule())
+	// No Go-coded process rule is registered: what used to be one (node
+	// spawning Python) is the suspicious-child-process YAML pattern.
 	procEngine := processDetector.NewEngine(registry)
 
 	sink := finding.NewSinkFunc(func(f *core.Finding) {

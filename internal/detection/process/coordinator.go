@@ -69,6 +69,12 @@ const maxLive = 1 << 17
 func (c *Coordinator) Handle(
 	event core.Event,
 ) []*core.Finding {
+	// With no rule registered there is nothing to evaluate, and no reason
+	// to keep track of processes for it.
+	if !c.engine.HasRules() {
+		return nil
+	}
+
 	c.mu.Lock()
 
 	var findings []*core.Finding

@@ -264,7 +264,7 @@ func TestCoordinatorSendsFindingsToSink(t *testing.T) {
 	sink := &fakeFindingSink{}
 
 	registry := NewRegistry()
-	registry.Register(NewSuspiciousChildProcessRule())
+	registry.Register(nodeSpawnsPython())
 
 	engine := NewEngine(registry)
 	coordinator := NewCoordinator(engine, sink)
@@ -324,7 +324,7 @@ func TestCoordinatorSendsFindingsToSink(t *testing.T) {
 
 func trackedCoordinator(running ...core.Process) (*Coordinator, *fakeFindingSink) {
 	registry := NewRegistry()
-	registry.Register(NewSuspiciousChildProcessRule())
+	registry.Register(nodeSpawnsPython())
 
 	sink := &fakeFindingSink{}
 	coordinator := NewCoordinator(NewEngine(registry), sink)
@@ -347,7 +347,7 @@ func TestCoordinatorFollowsEventsWithoutSnapshots(t *testing.T) {
 	coordinator, sink := trackedCoordinator(livePID(100, 1, "node"))
 
 	coordinator.Handle(processEvent(core.EventProcessStart, livePID(200, 100, "python")))
-	if len(sink.findings) != 1 || sink.findings[0].Rule != "suspicious-child-process" {
+	if len(sink.findings) != 1 || sink.findings[0].Rule != "parent-child" {
 		t.Fatalf("findings = %d, want the node → python pair", len(sink.findings))
 	}
 	if got := sink.findings[0].Evidence.Process.PID; got != 200 {
@@ -412,7 +412,7 @@ func TestCoordinatorIgnoresExitOfAnotherIdentity(t *testing.T) {
 // the whole of the latest one.
 func TestCoordinatorWithSnapshotsEvaluatesEverything(t *testing.T) {
 	registry := NewRegistry()
-	registry.Register(NewSuspiciousChildProcessRule())
+	registry.Register(nodeSpawnsPython())
 	sink := &fakeFindingSink{}
 	coordinator := NewCoordinator(NewEngine(registry), sink)
 

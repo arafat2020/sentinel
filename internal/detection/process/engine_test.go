@@ -151,10 +151,10 @@ func TestEngineReturnsFindings(t *testing.T) {
 	}
 }
 
-func TestEngineEvaluatesSuspiciousChildProcessRule(t *testing.T) {
+func TestEngineEvaluatesARule(t *testing.T) {
 	registry := NewRegistry()
 
-	rule := NewSuspiciousChildProcessRule()
+	rule := nodeSpawnsPython()
 	registry.Register(rule)
 
 	engine := NewEngine(registry)
@@ -189,9 +189,9 @@ func TestEngineEvaluatesSuspiciousChildProcessRule(t *testing.T) {
 
 	finding := findings[0]
 
-	if finding.Rule != "suspicious-child-process" {
+	if finding.Rule != "parent-child" {
 		t.Fatalf(
-			"expected suspicious-child-process, got %q",
+			"expected parent-child, got %q",
 			finding.Rule,
 		)
 	}

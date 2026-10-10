@@ -66,9 +66,9 @@ func (sentinelTheme) Color(n fyne.ThemeColorName, v fyne.ThemeVariant) color.Col
 	return theme.DarkTheme().Color(n, v)
 }
 
-func (sentinelTheme) Font(s fyne.TextStyle) fyne.Resource    { return theme.DarkTheme().Font(s) }
+func (sentinelTheme) Font(s fyne.TextStyle) fyne.Resource     { return theme.DarkTheme().Font(s) }
 func (sentinelTheme) Icon(n fyne.ThemeIconName) fyne.Resource { return theme.DarkTheme().Icon(n) }
-func (sentinelTheme) Size(n fyne.ThemeSizeName) float32      { return theme.DarkTheme().Size(n) }
+func (sentinelTheme) Size(n fyne.ThemeSizeName) float32       { return theme.DarkTheme().Size(n) }
 
 // ── Bounded log list ──────────────────────────────────────────────────────────
 

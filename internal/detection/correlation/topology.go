@@ -54,10 +54,15 @@ const maxDescendantVisits = 4096
 // generations, until visit returns false. It reports whether the walk was
 // cut short by maxDescendantVisits, in which case some descendants were not
 // visited.
+//
+// known, if not nil, says whether a process may be counted on: the walk does
+// not visit, or pass through, one that it rejects. Ancestry is only as good
+// as every link in it, in whichever direction it is followed.
 func walkDescendants(
 	t *topology,
 	parent core.ProcessIdentity,
 	maxDepth int,
+	known func(core.ProcessIdentity) bool,
 	visit func(core.ProcessIdentity) bool,
 ) (truncated bool) {
 	visited := 0
@@ -71,6 +76,9 @@ func walkDescendants(
 			}
 			visited++
 
+			if known != nil && !known(child) {
+				continue
+			}
 			if !visit(child) {
 				return false
 			}

@@ -364,7 +364,7 @@ func (e *Engine) relinked(child core.ProcessIdentity) {
 	}
 
 	marked := 0
-	walkDescendants(e.tree, child, MaxDepthLimit, func(identity core.ProcessIdentity) bool {
+	walkDescendants(e.tree, child, MaxDepthLimit, nil, func(identity core.ProcessIdentity) bool {
 		if marked >= maxSubtreeTouch {
 			e.rescan = true
 			return false
@@ -1205,7 +1205,15 @@ func (w engineWorld) eachChild(parent core.ProcessIdentity, visit func(core.Proc
 }
 
 func (w engineWorld) eachDescendant(parent core.ProcessIdentity, maxDepth int, visit func(core.ProcessIdentity) bool) {
-	if walkDescendants(w.engine.tree, parent, maxDepth, visit) {
+	// A tombstone whose window has passed is no longer evidence of
+	// ancestry, even before the sweep removes it; the walk up from a
+	// descendant stops at one, so the walk down must too.
+	known := func(identity core.ProcessIdentity) bool {
+		_, ok := w.visible(identity)
+		return ok
+	}
+
+	if walkDescendants(w.engine.tree, parent, maxDepth, known, visit) {
 		w.engine.metrics.DescendantWalksTruncated++
 	}
 }

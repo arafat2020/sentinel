@@ -392,3 +392,45 @@ func TestDescendantValidation(t *testing.T) {
 		}
 	}
 }
+
+// Found by the incremental-versus-full comparison: an intermediate whose
+// tombstone has expired but has not yet been swept must break the chain
+// whichever end the search starts from.
+func TestDescendantExpiredIntermediateBreaksChainInBothDirections(t *testing.T) {
+	pattern := []BehaviorPattern{{
+		Name: "web-shell-connects",
+		Processes: []ProcessPattern{
+			named("web", "nginx", core.EventNetworkConnect),
+			named("shell", "sh", core.EventNetworkConnect),
+		},
+		Relationships: []RelationshipPattern{descendant("web", "shell", 4)},
+	}}
+
+	for _, last := range []string{"ancestor", "descendant"} {
+		h := newHarness(testWindow)
+		h.SetPatterns(pattern)
+
+		chain := h.lineage(100, at(time.Second), "nginx", "php-fpm", "sh")
+		h.exit(chain[1], at(2*time.Second))
+
+		// Evaluate just before the tombstone expires, so the periodic sweep
+		// has run and will not run again at the moment it does expire.
+		expiry := 2*time.Second + testWindow
+		h.detect(at(expiry - time.Second))
+
+		ends := []core.Process{chain[0], chain[2]}
+		if last == "ancestor" {
+			ends[0], ends[1] = ends[1], ends[0]
+		}
+		h.connect(ends[0], at(expiry-500*time.Millisecond))
+		h.detect(at(expiry - 500*time.Millisecond))
+		h.connect(ends[1], at(expiry))
+
+		if _, lingering := h.records[chain[1].Identity()]; !lingering {
+			t.Fatalf("%s last: the tombstone was swept; the test no longer covers the unswept case", last)
+		}
+		if got := h.detect(at(expiry)); len(got) != 0 {
+			t.Errorf("%s changed last: findings = %d, want 0 through an expired intermediate", last, len(got))
+		}
+	}
+}

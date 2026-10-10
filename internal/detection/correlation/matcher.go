@@ -566,7 +566,7 @@ func (w *sliceWorld) eachChild(parent core.ProcessIdentity, visit func(core.Proc
 }
 
 func (w *sliceWorld) eachDescendant(parent core.ProcessIdentity, maxDepth int, visit func(core.ProcessIdentity) bool) {
-	walkDescendants(w.topology, parent, maxDepth, visit)
+	walkDescendants(w.topology, parent, maxDepth, nil, visit)
 }
 
 func (w *sliceWorld) eachRelationship(visit func(parent, child core.ProcessIdentity) bool) {

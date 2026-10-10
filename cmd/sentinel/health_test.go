@@ -42,6 +42,7 @@ func sampleHealth() healthReport {
 			SequencesPossiblyTruncated: 305, SequenceSearchesAborted: 306,
 			FindingsEmitted: 307, FindingsExcluded: 308, FindingsSuppressed: 309,
 			ActiveSuppressions: 310, Processes: 311, Tombstones: 312, TombstonesEvicted: 313,
+			SearchCandidates: 318, SearchWorkDeferred: 319, DeferredProcesses: 320, FullRescans: 321,
 			DetectionLatency: correlation.LatencySummary{Count: 314, P50: 315 * time.Microsecond, P99: 316 * time.Microsecond, Max: 317 * time.Microsecond},
 		},
 		Excluded: map[string]int{"rule-b": 402, "rule-a": 401},
@@ -68,7 +69,7 @@ func TestHealthReportShowsEveryCounter(t *testing.T) {
 			t.Errorf("log line lacks collector counter %d:\n%s", value, line)
 		}
 	}
-	for _, value := range []int{201, 202, 203, 204, 205, 301, 302, 303, 304, 305, 306, 307, 308, 309, 310, 311, 312, 313, 314, 315, 316, 317} {
+	for _, value := range []int{201, 202, 203, 204, 205, 301, 302, 303, 304, 305, 306, 307, 308, 309, 310, 311, 312, 313, 314, 315, 316, 317, 318, 319, 320, 321} {
 		if !strings.Contains(text, fmt.Sprint(value)) {
 			t.Errorf("text lacks bus or engine counter %d:\n%s", value, text)
 		}

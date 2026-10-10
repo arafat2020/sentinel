@@ -38,6 +38,12 @@ type PatternsPage struct {
 	patterns    []correlation.BehaviorPattern
 	patternPath string
 	onSave      func([]correlation.BehaviorPattern)
+	// loadErrors are the entries of the patterns file that were rejected
+	// when it was loaded. They are not in patterns, and a save keeps them in
+	// the file untouched.
+	loadErrors []config.PatternError
+	// problems lists what is wrong with the patterns, below the editor.
+	problems *tview.TextView
 
 	// root is the layout returned by Root() and registered as a page.
 	root *tview.Flex
@@ -78,6 +84,38 @@ func NewPatternsPage(
 	}
 	pp.build()
 	return pp
+}
+
+// SetLoadErrors gives the page the entries of the patterns file that could
+// not be loaded, so it can show why they are missing from the list.
+func (pp *PatternsPage) SetLoadErrors(errs []config.PatternError) {
+	pp.loadErrors = errs
+	pp.refreshProblems()
+}
+
+// refreshProblems shows what is wrong with the patterns, or hides the panel
+// when nothing is.
+func (pp *PatternsPage) refreshProblems() {
+	problems := patternProblems(pp.loadErrors, pp.patterns)
+
+	if len(problems) == 0 {
+		pp.problems.SetText("")
+		pp.root.ResizeItem(pp.problems, 0, 0)
+		return
+	}
+
+	var text strings.Builder
+	for _, problem := range problems {
+		fmt.Fprintf(&text, " [red]✗[-] %s\n", tview.Escape(problem))
+	}
+	pp.problems.SetText(strings.TrimRight(text.String(), "\n"))
+
+	// Border plus up to four problems; the rest scroll.
+	height := len(problems)
+	if height > 4 {
+		height = 4
+	}
+	pp.root.ResizeItem(pp.problems, height+2, 0)
 }
 
 // Root returns the tview primitive to register as a page.
@@ -131,8 +169,14 @@ func (pp *PatternsPage) build() {
 		AddItem(pp.list, 30, 0, true).
 		AddItem(pp.rightPanel, 0, 1, false)
 
+	pp.problems = tview.NewTextView().SetDynamicColors(true).SetScrollable(true)
+	pp.problems.SetBorder(true).
+		SetTitle(" Pattern errors — these patterns are not active; fix them in the YAML file ").
+		SetTitleAlign(tview.AlignLeft)
+
 	pp.root = tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(body, 0, 1, true).
+		AddItem(pp.problems, 0, 0, false).
 		AddItem(hint, 1, 0, false)
 
 	pp.reloadList()
@@ -146,8 +190,13 @@ func (pp *PatternsPage) reloadList() {
 		if name == "" {
 			name = "(unnamed)"
 		}
+		name = tview.Escape(name)
+		if p.UsesAdvancedFields() {
+			name += " [yellow]⚙[-]"
+		}
 		pp.list.AddItem(name, "", 0, nil)
 	}
+	pp.refreshProblems()
 	if pp.editingIdx >= 0 && pp.editingIdx < len(pp.patterns) {
 		pp.list.SetCurrentItem(pp.editingIdx)
 	}
@@ -194,6 +243,12 @@ func (pp *PatternsPage) rebuildForm() {
 	pp.form.AddInputField("Description", pp.draft.Description, 60, nil, func(v string) {
 		pp.draft.Description = v
 	})
+
+	// Parts of the pattern this editor does not understand are kept as they
+	// are on save; say so rather than let them look absent.
+	if pp.draft.UsesAdvancedFields() {
+		pp.form.AddTextView("Advanced", "[yellow]⚙ "+advancedFieldsNote+"[-]", 40, 1, true, false)
+	}
 
 	// Processes summary + edit button
 	pp.form.AddTextView("Processes", pp.processSummary(), 40, 1, true, false)
@@ -347,6 +402,9 @@ func (pp *PatternsPage) openProcessEditor() {
 				evtStr = "none"
 			}
 			secondary := fmt.Sprintf("  %s  events:[%s]", conds, evtStr)
+			if p.UsesAdvancedFields() {
+				secondary += "  ⚙ " + advancedFieldsNote
+			}
 			procList.AddItem(p.ID, secondary, 0, nil)
 		}
 	}

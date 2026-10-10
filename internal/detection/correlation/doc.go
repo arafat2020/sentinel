@@ -7,8 +7,10 @@
 // assignment of one process to each role such that:
 //
 //   - every role is bound to a different process;
-//   - each process meets its role's conditions and has produced every event
-//     type the role requires, inside the window;
+//   - each process satisfies its role's conditions and match block, and is
+//     not barred from the role by one of the pattern's exclusions;
+//   - each process has produced, inside the window, an event satisfying each
+//     of the role's event requirements;
 //   - every relationship in the pattern holds between the bound processes.
 //
 // All of a pattern's relationships must hold at once, and a role that
@@ -19,7 +21,30 @@
 // pattern with several roles must relate every one of them; see
 // [BehaviorPattern.Validate]. A pattern that fails validation never matches.
 //
-// A role that lists no events places no requirement on activity.
+// A role that lists no events places no requirement on activity. A pattern
+// with no roles at all is a draft: valid, skipped, and never matched.
+//
+// # Predicates
+//
+// A match block ([MatchBlock]) is a set of field predicates that must all
+// hold, optionally with alternatives (any_of) of which one must. It is used
+// to match a process, and, as an event's where block, to filter events. An
+// event requirement is satisfied by one in-window event of its type that
+// passes its whole where block; requirements are independent of each other.
+//
+// Each field has a kind, which decides the operators it accepts: string
+// fields take eq, in, contains, prefix, suffix, glob and regex; address
+// fields take those and cidr; numeric fields take eq, in, gt, gte, lt and
+// lte. Any operator object may be wrapped in not, and nocase makes an
+// object's string operators ignore case.
+//
+// A value that is missing (an empty string, or a field of a part of the
+// event that is absent) satisfies only eq: "" among the positive operators.
+// Every other operator is false for it, so its negation is true.
+//
+// Predicates are compiled once, when patterns are set: regular expressions,
+// globs and networks are parsed then, and evaluating a compiled predicate
+// allocates nothing.
 //
 // # Time
 //
@@ -66,6 +91,11 @@
 // not its exit event has arrived. Children that started after the new holder
 // are attributed to it.
 //
+// An event sometimes names a PID without a start time, because the OS would
+// not report one at that moment. Such an event is attributed to the process
+// known to hold that PID rather than treated as a separate process; if that
+// process is later described in full, the full description takes over.
+//
 // # Retention
 //
 // An exited process is kept as a tombstone for one window after its exit, so
@@ -88,6 +118,20 @@
 // same finding is not emitted again until one window after it was last
 // emitted. A different set of processes matching the same rule is a
 // different finding.
+//
+// Two things can stop a new finding from being emitted, and either way the
+// incident is dealt with for one window, so it is counted once:
+//
+//   - an [Exclusion] that covers the rule and matches any bound process
+//     drops the finding; [Engine.ExcludedFindings] reports how many each
+//     rule has lost;
+//   - a rule that has already emitted its limit of findings in its current
+//     window (MaxFindingsPerWindow, by default
+//     [DefaultMaxFindingsPerWindow]) has further ones held back. A rule's
+//     window starts with its first finding; when it ends, the held-back
+//     findings are reported as one INFO finding giving their number.
+//
+// Excluded findings do not count towards the limit.
 //
 // # Evaluation
 //

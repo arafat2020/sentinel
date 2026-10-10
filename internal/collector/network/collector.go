@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	processcollector "github.com/arafat2020/sentinel/internal/collector/process"
 	"github.com/arafat2020/sentinel/internal/core"
 	gopsnet "github.com/shirou/gopsutil/v4/net"
 	gopsprocess "github.com/shirou/gopsutil/v4/process"
@@ -13,28 +14,6 @@ type Collector struct{}
 
 func NewCollector() *Collector {
 	return &Collector{}
-}
-
-func buildProcess(
-	p *gopsprocess.Process,
-	ctx context.Context,
-) core.Process {
-	name, _ := p.NameWithContext(ctx)
-	exe, _ := p.ExeWithContext(ctx)
-	cmdline, _ := p.CmdlineWithContext(ctx)
-	ppid, _ := p.PpidWithContext(ctx)
-	startTime, _ := p.CreateTimeWithContext(ctx)
-	username, _ := p.UsernameWithContext(ctx)
-
-	return core.Process{
-		PID:         p.Pid,
-		PPID:        ppid,
-		StartTime:   time.UnixMilli(startTime),
-		Name:        name,
-		Executable:  exe,
-		CommandLine: cmdline,
-		User:        username,
-	}
 }
 
 func protocolName(socketType uint32) string {
@@ -83,7 +62,9 @@ func (c *Collector) Collect(
 			continue
 		}
 
-		process := buildProcess(p, ctx)
+		// Built by the process collector's own logic, so the connection's
+		// process has the same identity the process collector reports.
+		process := processcollector.FromGopsutil(ctx, p)
 
 		for _, connection := range processConnections {
 			connections = append(

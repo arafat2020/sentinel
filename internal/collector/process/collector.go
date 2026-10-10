@@ -23,6 +23,25 @@ func NewCollector() *Collector {
 	return &Collector{}
 }
 
+func init() {
+	// On Linux gopsutil derives a process's creation time from the system
+	// boot time, which it re-reads on every call. In Docker and LXC guests
+	// that boot time is computed as "now - uptime" and truncated to a
+	// second, so two reads for the same process can differ by a second;
+	// elsewhere it moves if the system clock is stepped. Caching it makes a
+	// process's start time, and therefore its identity, stable for as long
+	// as Sentinel runs. It has no effect on other platforms.
+	gopsprocess.EnableBootTimeCache(true)
+}
+
+// FromGopsutil builds the core.Process for a gopsutil process handle. Every
+// collector that attaches a process to an event must use it, so that the
+// same live process always gets the same ProcessIdentity whichever collector
+// reported it.
+func FromGopsutil(ctx context.Context, p *gopsprocess.Process) core.Process {
+	return buildProcess(p, ctx)
+}
+
 func buildProcess(
 	p *gopsprocess.Process,
 	ctx context.Context,

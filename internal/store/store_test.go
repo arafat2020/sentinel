@@ -2,8 +2,11 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -115,6 +118,65 @@ func TestRowsWithoutEvidenceHaveNone(t *testing.T) {
 	// Empty evidence is stored and read back as empty, not as missing.
 	if findings[1].Evidence == nil || len(findings[1].Evidence.Roles) != 0 {
 		t.Errorf("empty evidence read back as %+v", findings[1].Evidence)
+	}
+}
+
+// testdata/evidence_go_field_names.json is sampleEvidence exactly as it was
+// written before the evidence types had JSON tags. A row holding it must read
+// back as the same evidence, and be indistinguishable from one written now.
+func TestReadsEvidenceStoredWithGoFieldNames(t *testing.T) {
+	legacy, err := os.ReadFile(filepath.Join("testdata", "evidence_go_field_names.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(legacy), `"CommandLine"`) || strings.Contains(string(legacy), `"command_line"`) {
+		t.Fatal("the fixture is not in the old format")
+	}
+
+	path := filepath.Join(t.TempDir(), "sentinel.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.WriteFinding("written now", sampleEvidence())
+	waitFor(t, s, "Findings", 1)
+	s.Close()
+
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO events(ts,tab,line,evidence) VALUES(?,?,?,?)`,
+		time.Now().UTC().Format(time.RFC3339Nano), "Findings", "written before the tags", strings.TrimSpace(string(legacy)),
+	); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	s, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	findings := waitFor(t, s, "Findings", 2)
+	want := sampleEvidence()
+	for _, row := range findings {
+		if row.Evidence == nil {
+			t.Fatalf("%q: no evidence was read", row.Line)
+		}
+		if !reflect.DeepEqual(*row.Evidence, want) {
+			t.Errorf("%q:\n got %+v\nwant %+v", row.Line, *row.Evidence, want)
+		}
+	}
+
+	stored, err := json.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(stored), `"command_line"`) || strings.Contains(string(stored), `"CommandLine"`) {
+		t.Errorf("evidence is not written with the tagged keys: %s", stored)
 	}
 }
 

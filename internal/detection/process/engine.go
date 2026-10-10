@@ -30,3 +30,18 @@ func (e *Engine) Evaluate(tree *ProcessTree) []*core.Finding {
 
 	return findings
 }
+
+// EvaluateProcesses runs the rules for the given processes only.
+func (e *Engine) EvaluateProcesses(tree *ProcessTree, identities []core.ProcessIdentity) []*core.Finding {
+	var findings []*core.Finding
+
+	for _, identity := range identities {
+		for _, rule := range e.registry.Rules() {
+			if finding := rule.Evaluate(&RuleContext{Tree: tree}, identity); finding != nil {
+				findings = append(findings, finding)
+			}
+		}
+	}
+
+	return findings
+}

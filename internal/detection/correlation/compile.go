@@ -208,6 +208,10 @@ func compileRole(role ProcessPattern, window time.Duration) (*compiledRole, erro
 	}
 
 	for i, event := range role.Events {
+		if err := checkEventType(event.Type); err != nil {
+			return nil, fmt.Errorf("events[%d]: %w", i, err)
+		}
+
 		required := compiledEvent{eventType: event.Type}
 
 		if event.Where != nil {

@@ -140,6 +140,9 @@ func compileSequence(sequence *SequencePattern, roles map[string]int, window tim
 		if step.Type == "" {
 			return nil, fmt.Errorf("steps[%d]: type is required", i)
 		}
+		if err := checkEventType(step.Type); err != nil {
+			return nil, fmt.Errorf("steps[%d]: %w", i, err)
+		}
 
 		prepared := compiledStep{role: role, eventType: step.Type, capture: -1}
 

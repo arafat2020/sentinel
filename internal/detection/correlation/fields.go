@@ -2,6 +2,8 @@ package correlation
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/arafat2020/sentinel/internal/core"
 )
@@ -123,6 +125,40 @@ var fileFields = map[string]field[core.Event]{
 	}},
 }
 
+// knownEventTypes are the event types a pattern may name. A type that is not
+// one of them cannot occur, so a requirement for it could never be met; that
+// is almost always a misspelling, and is reported as one.
+var knownEventTypes = map[core.EventType]bool{
+	core.EventProcessStart:      true,
+	core.EventProcessExit:       true,
+	core.EventProcessExec:       true,
+	core.EventProcessSnapshot:   true,
+	core.EventNetworkConnect:    true,
+	core.EventNetworkClose:      true,
+	core.EventFileCreate:        true,
+	core.EventFileModify:        true,
+	core.EventFileDelete:        true,
+	core.EventFileRename:        true,
+	core.EventPersistenceChange: true,
+	core.EventDNSQuery:          true,
+	core.EventScriptExecution:   true,
+}
+
+// checkEventType reports an event type that Sentinel does not produce.
+func checkEventType(eventType core.EventType) error {
+	if knownEventTypes[eventType] {
+		return nil
+	}
+
+	names := make([]string, 0, len(knownEventTypes))
+	for name := range knownEventTypes {
+		names = append(names, string(name))
+	}
+	sort.Strings(names)
+
+	return fmt.Errorf("unknown event type %q (valid types: %s)", eventType, strings.Join(names, ", "))
+}
+
 // eventFields returns the fields a where block may use for an event type, or
 // nil for an event type that carries nothing to filter on.
 func eventFields(eventType core.EventType) map[string]field[core.Event] {
@@ -133,7 +169,7 @@ func eventFields(eventType core.EventType) map[string]field[core.Event] {
 		return dnsFields
 	case core.EventFileCreate, core.EventFileModify, core.EventFileDelete, core.EventFileRename:
 		return fileFields
-	case core.EventProcessStart, core.EventProcessExit:
+	case core.EventProcessStart, core.EventProcessExit, core.EventProcessExec:
 		return processEventFields
 	default:
 		return nil

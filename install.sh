@@ -99,6 +99,46 @@ if ! ldconfig -p 2>/dev/null | grep -q "libpcap"; then
   fi
 fi
 
+# ── process collector check ───────────────────────────────────────────────────
+# Sentinel picks how it watches processes at startup (--process-collector=auto):
+# eBPF if the kernel supports it, else the netlink process connector, else
+# polling /proc every two seconds. This only reports what it will most likely
+# choose here; nothing is configured.
+
+KERNEL_RELEASE="$(uname -r)"
+KERNEL_MAJOR="${KERNEL_RELEASE%%.*}"
+KERNEL_REST="${KERNEL_RELEASE#*.}"
+KERNEL_MINOR="${KERNEL_REST%%[!0-9]*}"
+
+kernel_at_least() {
+  [[ "$KERNEL_MAJOR" =~ ^[0-9]+$ && "$KERNEL_MINOR" =~ ^[0-9]+$ ]] || return 1
+  (( KERNEL_MAJOR > $1 || (KERNEL_MAJOR == $1 && KERNEL_MINOR >= $2) ))
+}
+
+blue "Checking process collection support (kernel ${KERNEL_RELEASE}) …"
+if kernel_at_least 5 8 && [[ -r /sys/kernel/btf/vmlinux ]]; then
+  green "Process collector: ebpf — kernel is 5.8 or newer and has BTF."
+  green "  Short-lived processes are captured in full, as they happen."
+else
+  if ! kernel_at_least 5 8; then
+    red "eBPF process collection needs kernel 5.8 or newer (this is ${KERNEL_RELEASE})."
+  else
+    red "eBPF process collection needs BTF, and /sys/kernel/btf/vmlinux is missing"
+    red "  (the kernel was built without CONFIG_DEBUG_INFO_BTF)."
+  fi
+
+  if [[ -e /proc/net/connector ]]; then
+    green "Process collector: proc-connector — every start and exit is reported,"
+    green "  but a process that exits within a millisecond may lack its command line."
+  else
+    red "The kernel has no process connector either (CONFIG_PROC_EVENTS)."
+    green "Process collector: poll — the process table is compared every 2 seconds;"
+    green "  processes that start and exit between two polls are not seen."
+  fi
+fi
+green "  Sentinel logs the collector it chose, and why, when it starts."
+green "  Override with: sentinel --process-collector=ebpf|proc-connector|poll"
+
 # ── systemd service (optional) ───────────────────────────────────────────────
 
 if command -v systemctl >/dev/null 2>&1; then
@@ -115,8 +155,18 @@ Type=simple
 ExecStart=${INSTALL_DIR}/${BINARY_NAME}
 Restart=on-failure
 RestartSec=5s
-# fanotify and libpcap both require elevated privilege
+# Sentinel runs as root, which is sufficient for every collector. What each
+# one needs, for anyone running it under a restricted account instead:
+#   eBPF process events       CAP_BPF and CAP_PERFMON (CAP_SYS_ADMIN before 5.8)
+#   process connector         CAP_NET_ADMIN
+#   other users' /proc entries CAP_SYS_PTRACE
+#   fanotify file events      CAP_SYS_ADMIN
+#   libpcap DNS capture       CAP_NET_RAW and CAP_NET_ADMIN
+# CAP_SYS_RESOURCE is also needed on kernels before 5.11, where eBPF maps
+# count against RLIMIT_MEMLOCK.
 User=root
+# eBPF maps are locked memory on kernels before 5.11.
+LimitMEMLOCK=infinity
 
 [Install]
 WantedBy=multi-user.target
@@ -138,5 +188,5 @@ green ""
 green "Run it:"
 green "  sudo sentinel                  # interactive TUI"
 green ""
-green "Tabs: 1=Process  2=Network  3=DNS  4=File  5=Findings"
-green "Keys: 1-5 or ←/→ to switch,  Ctrl+C to quit"
+green "Tabs: 1=Process  2=Network  3=DNS  4=File  5=Findings  …  9=Health"
+green "Keys: 1-9 or ←/→ to switch,  Ctrl+C to quit"

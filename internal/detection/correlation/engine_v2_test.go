@@ -617,3 +617,46 @@ func TestInvalidPatternIsSkippedNotFatal(t *testing.T) {
 		t.Fatalf("findings = %+v, want only the valid pattern's", got)
 	}
 }
+
+// A requirement for an event type Sentinel never produces could never be met,
+// so it is rejected rather than loaded as a rule that silently cannot fire.
+func TestUnknownEventTypesAreRejected(t *testing.T) {
+	requirement := BehaviorPattern{
+		Name: "p",
+		Processes: []ProcessPattern{{
+			ID:     "shell",
+			Events: []EventPattern{{Type: core.EventDNSQuery}, {Type: "NETWORK_CONECT"}},
+		}},
+	}
+	err := requirement.Validate()
+	for _, want := range []string{`role "shell"`, "events[1]", `unknown event type "NETWORK_CONECT"`, "NETWORK_CONNECT"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("event requirement: error = %v, want it to mention %q", err, want)
+		}
+	}
+
+	step := BehaviorPattern{
+		Name:      "p",
+		Processes: []ProcessPattern{{ID: "shell"}},
+		Sequence: &SequencePattern{Steps: []SequenceStep{
+			{Role: "shell", Type: core.EventFileCreate},
+			{Role: "shell", Type: "PROCESS_LAUNCH"},
+		}},
+	}
+	err = step.Validate()
+	for _, want := range []string{"sequence", "steps[1]", `unknown event type "PROCESS_LAUNCH"`} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("sequence step: error = %v, want it to mention %q", err, want)
+		}
+	}
+
+	for eventType := range knownEventTypes {
+		pattern := BehaviorPattern{
+			Name:      "p",
+			Processes: []ProcessPattern{{ID: "a", Events: []EventPattern{{Type: eventType}}}},
+		}
+		if err := pattern.Validate(); err != nil {
+			t.Errorf("%s: unexpected error: %v", eventType, err)
+		}
+	}
+}

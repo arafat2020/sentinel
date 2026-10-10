@@ -23,10 +23,11 @@ const (
 	tabPatterns  = 5
 	tabSettings  = 6
 	tabResources = 7
-	tabCount     = 8
+	tabHealth    = 8
+	tabCount     = 9
 )
 
-var tabNames = [tabCount]string{"Process", "Network", "DNS", "File", "Findings", "Patterns", "Settings", "Resources"}
+var tabNames = [tabCount]string{"Process", "Network", "DNS", "File", "Findings", "Patterns", "Settings", "Resources", "Health"}
 
 // ringCap is the maximum number of formatted lines kept in memory per tab.
 // Older lines are evicted and live only in the SQLite store.
@@ -83,6 +84,7 @@ type UI struct {
 	patternsPage *PatternsPage
 	settingsPage *SettingsPage
 	resources    *ResourcesPage
+	health       *healthView
 
 	// Resource snapshots are rendered by waking the event loop, never by
 	// waiting on it. resourceTick is the wake-up: an event recognised by
@@ -123,6 +125,9 @@ func NewUI() *UI {
 
 	u.resources = NewResourcesPage()
 	u.pages.AddPage(tabNames[tabResources], u.resources.Root(), true, false)
+
+	u.health = newHealthView()
+	u.pages.AddPage(tabNames[tabHealth], u.health, true, false)
 
 	u.root = tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(u.tabBar, 1, 0, false).
@@ -194,7 +199,7 @@ func NewUI() *UI {
 			// the plain telemetry tabs, the resource monitor, and Settings
 			// while focus is still on the tab bar.
 			if event.Rune() >= '1' && event.Rune() < '1'+tabCount &&
-				(active < tabPatterns || active == tabResources || u.app.GetFocus() == u.tabBar) {
+				(active < tabPatterns || active == tabResources || active == tabHealth || u.app.GetFocus() == u.tabBar) {
 				u.switchTab(int(event.Rune() - '1'))
 				return nil
 			}
@@ -204,6 +209,10 @@ func NewUI() *UI {
 
 	return u
 }
+
+// SetHealth gives the Health tab its text, which it asks for whenever it is
+// drawn. Call before Run.
+func (u *UI) SetHealth(text func() string) { u.health.text = text }
 
 // SetStore attaches the SQLite store. Call before Run.
 func (u *UI) SetStore(s *store.Store) { u.store = s }
@@ -288,7 +297,7 @@ func (u *UI) renderTabBar() {
 			bar += fmt.Sprintf("[white:darkblue]%s[-:-:-] ", tabLabel(i))
 		}
 	}
-	bar += "[gray:darkblue]  ←/→ or 1-8 to switch[-:-:-]"
+	bar += "[gray:darkblue]  ←/→ or 1-9 to switch[-:-:-]"
 	u.tabBar.SetText(bar)
 	u.scrollTabBar()
 }
@@ -409,8 +418,10 @@ func (u *UI) AddFindingWithEvidence(line string, evidence core.Evidence) {
 func (u *UI) UpdateResources(s *core.ResourceSnapshot) {
 	u.resources.SetSnapshot(s)
 
+	// The Health tab is redrawn on the same tick, which is what keeps it
+	// current while nothing else is happening.
 	u.mu.Lock()
-	visible := u.active == tabResources
+	visible := u.active == tabResources || u.active == tabHealth
 	u.mu.Unlock()
 
 	if !visible || u.stopped.Load() {

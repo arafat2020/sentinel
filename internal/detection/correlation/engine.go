@@ -153,6 +153,22 @@ type Metrics struct {
 	// SequenceSearchesAborted counts sequence searches given up after
 	// maxSequenceSearch candidate events without an answer.
 	SequenceSearchesAborted uint64
+
+	// FindingsEmitted counts findings returned by DetectBehaviors, not
+	// including rate-limit summaries.
+	FindingsEmitted uint64
+	// FindingsExcluded counts matches dropped by an exclusion.
+	FindingsExcluded uint64
+	// FindingsSuppressed counts matches held back by a rule's
+	// max_findings_per_window.
+	FindingsSuppressed uint64
+	// ActiveSuppressions is how many incidents are currently remembered so
+	// that they are not reported again within the window.
+	ActiveSuppressions int
+
+	// Processes is how many processes the engine knows now, including
+	// those that exited within the last window.
+	Processes int
 }
 
 // Option configures an Engine.
@@ -852,13 +868,16 @@ func (e *Engine) DetectBehaviors() []core.Finding {
 
 			if e.isExcluded(pattern.Name, match) {
 				e.excluded[pattern.Name]++
+				e.metrics.FindingsExcluded++
 				continue
 			}
 
 			if !e.withinRateLimit(pattern, now) {
+				e.metrics.FindingsSuppressed++
 				continue
 			}
 
+			e.metrics.FindingsEmitted++
 			findings = append(findings, e.finding(pattern, match, now))
 		}
 	}
@@ -1198,6 +1217,8 @@ func (e *Engine) Metrics() Metrics {
 
 	metrics := e.metrics
 	metrics.ThresholdCounters = len(e.counters)
+	metrics.ActiveSuppressions = len(e.suppressed)
+	metrics.Processes = len(e.records)
 
 	return metrics
 }

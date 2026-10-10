@@ -38,6 +38,7 @@ func main() {
 	querySince := flag.String("since", "", "start date/time, e.g. 2026-09-14 or 2026-09-14T08:00:00")
 	queryUntil := flag.String("until", "", "end date/time (default: now)")
 	queryLimit := flag.Int("limit", 200, "maximum rows to return")
+	collectors := registerCollectorFlags()
 	flag.Parse()
 
 	if *queryMode {
@@ -104,13 +105,25 @@ func main() {
 	}
 
 	if *headless {
-		runHeadless(ctx, patternSet, patternsPath, eventStore)
+		runHeadless(ctx, patternSet, patternsPath, eventStore, collectors)
 		return
 	}
 
 	if *desktop {
-		runDesktopMode(ctx, patternSet, patternsPath, eventStore)
+		runDesktopMode(ctx, patternSet, patternsPath, eventStore, collectors)
 		return
+	}
+
+	// ── Process collection ───────────────────────────────────────────────────
+	// Opened before the terminal is taken over, so that a backend that was
+	// asked for by name and cannot start is reported where it can be read,
+	// and before anything else, so that nothing starts unobserved.
+
+	procCollector := processCollector.NewCollector()
+	collection, err := openProcessCollection(collectors, procCollector)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sentinel: %v\n", err)
+		os.Exit(1)
 	}
 
 	ui := NewUI()
@@ -118,9 +131,8 @@ func main() {
 
 	bus := eventbus.New(1000)
 
-	// ── Process detection (gopsutil — cross-platform) ────────────────────────
+	// ── Process detection ────────────────────────────────────────────────────
 
-	procCollector := processCollector.NewCollector()
 	lifecycleDetector := processDetector.NewLifecycleDetector()
 
 	registry := processDetector.NewRegistry()
@@ -143,6 +155,7 @@ func main() {
 
 	settingsPage := NewSettingsPage(ui.app, eventStore)
 	ui.SetSettingsPage(settingsPage)
+	ui.SetHealth((&health{collection: collection, bus: bus, engine: corrEngine}).Text)
 
 	// ── Pattern editor TUI page ───────────────────────────────────────────────
 
@@ -164,7 +177,7 @@ func main() {
 		if event.Process == nil {
 			return
 		}
-		if event.Type == core.EventProcessStart || event.Type == core.EventProcessExit {
+		if event.Type == core.EventProcessStart || event.Type == core.EventProcessExit || event.Type == core.EventProcessExec {
 			ui.AddProcess(fmt.Sprintf("%s  PID=%-6d  %-20s  %s",
 				event.Type,
 				event.Process.PID,
@@ -252,14 +265,6 @@ func main() {
 	netDetector := networkdetector.NewLifecycleDetector()
 	netMonitor := monitor.NewNetworkMonitor(netCollector, netDetector, 2*time.Second, bus)
 
-	processMonitor := monitor.NewProcessMonitor(
-		procCollector,
-		lifecycleDetector,
-		2*time.Second,
-		bus,
-		coordinator,
-	)
-
 	// Live resource usage feeds the Resources tab directly: it bypasses the
 	// event bus and the store so samples never reach detection or SQLite.
 	resourceMonitor := monitor.NewResourceMonitor(
@@ -268,14 +273,11 @@ func main() {
 		ui.UpdateResources,
 	)
 
-	// Tell the correlation engine about processes that are already running,
-	// so they can be recognised as parents of what they spawn from now on.
-	if snapshot, err := procCollector.Collect(ctx); err == nil {
-		corrEngine.Seed(snapshot.Processes)
-	}
-
 	bus.Start(ctx)
-	go processMonitor.Run(ctx)
+	for _, line := range collection.Describe() {
+		ui.AddProcess(line)
+	}
+	collection.Start(ctx, bus, lifecycleDetector, coordinator, corrEngine, ui.AddProcess)
 	go netMonitor.Run(ctx)
 	go resourceMonitor.Run(ctx)
 

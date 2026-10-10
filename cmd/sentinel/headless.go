@@ -30,15 +30,28 @@ import (
 //
 //	sentinel --headless
 //	nohup sudo sentinel --headless >> /var/log/sentinel.log 2>&1 &
-func runHeadless(ctx context.Context, patterns config.PatternSet, patternsPath string, s *store.Store) {
+func runHeadless(ctx context.Context, patterns config.PatternSet, patternsPath string, s *store.Store, collectors collectorFlags) {
 	logger := log.New(os.Stdout, "", log.LstdFlags)
 	logger.Printf("sentinel %s starting in headless mode", version)
+
+	// ── Process collection ───────────────────────────────────────────────────
+	// Opened first, so that nothing starts unobserved while the rest is set
+	// up.
+
+	procCollector := processCollector.NewCollector()
+	collection, err := openProcessCollection(collectors, procCollector)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sentinel: %v\n", err)
+		os.Exit(1)
+	}
+	for _, line := range collection.Describe() {
+		logger.Print(line)
+	}
 
 	bus := eventbus.New(1000)
 
 	// ── Process detection ────────────────────────────────────────────────────
 
-	procCollector := processCollector.NewCollector()
 	lifecycleDetector := processDetector.NewLifecycleDetector()
 
 	registry := processDetector.NewRegistry()
@@ -105,28 +118,32 @@ func runHeadless(ctx context.Context, patterns config.PatternSet, patternsPath s
 	netDetector := networkdetector.NewLifecycleDetector()
 	netMonitor := monitor.NewNetworkMonitor(netCollector, netDetector, 2*time.Second, bus)
 
-	processMonitor := monitor.NewProcessMonitor(
-		procCollector,
-		lifecycleDetector,
-		2*time.Second,
-		bus,
-		coordinator,
-	)
-
-	// Tell the correlation engine about processes that are already running,
-	// so they can be recognised as parents of what they spawn from now on.
-	if snapshot, err := procCollector.Collect(ctx); err == nil {
-		corrEngine.Seed(snapshot.Processes)
-	}
-
 	bus.Start(ctx)
-	go processMonitor.Run(ctx)
+	collection.Start(ctx, bus, lifecycleDetector, coordinator, corrEngine, func(message string) {
+		logger.Print(message)
+	})
 	go netMonitor.Run(ctx)
+
+	// One line a minute says whether Sentinel is keeping up.
+	report := &health{collection: collection, bus: bus, engine: corrEngine}
+	go func() {
+		ticker := time.NewTicker(healthLogInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				logger.Printf("HEALTH %s", report.Report().LogLine())
+			}
+		}
+	}()
 
 	logger.Printf("sentinel running — waiting for events (SIGTERM/SIGHUP/Ctrl+C to stop)")
 	<-ctx.Done()
 
 	bus.Shutdown()
 	bus.Wait()
+	logger.Printf("HEALTH %s", report.Report().LogLine())
 	logger.Printf("sentinel stopped")
 }

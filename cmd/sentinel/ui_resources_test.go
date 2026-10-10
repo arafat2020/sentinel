@@ -477,7 +477,7 @@ func TestTabBarOffset(t *testing.T) {
 	for i := range tabNames {
 		full += len(tabLabel(i)) + 1
 	}
-	throughSettings := full - len(tabLabel(tabResources)) - 1
+	throughSettings := full - len(tabLabel(tabResources)) - 1 - len(tabLabel(tabHealth)) - 1
 
 	cases := []struct {
 		name   string
@@ -485,11 +485,11 @@ func TestTabBarOffset(t *testing.T) {
 		width  int
 		want   int
 	}{
-		{"width unknown", tabResources, 0, 0},
-		{"wide terminal", tabResources, full + 20, 0},
+		{"width unknown", tabHealth, 0, 0},
+		{"wide terminal", tabHealth, full + 20, 0},
 		{"first tab never scrolls", tabProcess, 20, 0},
 		{"tab that fits exactly", tabSettings, throughSettings, 0},
-		{"last tab on 80 columns", tabResources, 80, full - 80},
+		{"last tab on 80 columns", tabHealth, 80, full - 80},
 		{"settings on 60 columns", tabSettings, 60, throughSettings - 60},
 	}
 	for _, c := range cases {

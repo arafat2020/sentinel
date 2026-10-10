@@ -2,7 +2,7 @@
 
 A host-based telemetry and behavioral detection agent for Linux, macOS, and Windows. Sentinel collects process, network, DNS, and file events from the OS kernel, routes them through an in-process event bus, and runs a correlation engine that fires findings when multi-step behavioral patterns match.
 
-Everything is visible in a live terminal TUI with seven tabs — no external services required.
+Everything is visible in a live terminal TUI with eight tabs — no external services required.
 
 ---
 
@@ -21,7 +21,8 @@ Everything is visible in a live terminal TUI with seven tabs — no external ser
 - **Headless mode** — run without a TUI for server/systemd deployments (`--headless`)
 - **Password protection** — bcrypt-hashed password gate; prompted on first install and every subsequent launch
 - **Settings tab** — configure log retention and SSH remote-access kill-switch from inside the TUI
-- **Terminal TUI** — seven live tabs (Process · Network · DNS · File · Findings · Patterns · Settings) navigable by keyboard
+- **Resources tab** — live, htop-style process table (PID, name, CPU %, resident memory) with system CPU and memory totals; display-only, never written to the database or the event bus
+- **Terminal TUI** — eight live tabs (Process · Network · DNS · File · Findings · Patterns · Settings · Resources) navigable by keyboard
 
 ---
 
@@ -192,18 +193,80 @@ Without the entitlement, file telemetry is silently skipped — all other tabs s
 | `5` | Findings tab |
 | `6` | Patterns tab (YAML behavioral pattern editor) |
 | `7` | Settings tab (retention · SSH kill-switch) |
-| `←` / `→` | Cycle tabs left/right |
+| `8` | Resources tab (live process monitor) |
+| `←` / `→` | Cycle tabs left/right (wraps around) |
 | `Ctrl+C` | Quit |
+
+The number keys switch tabs from the telemetry tabs (1–5), from Resources, and
+from Settings while focus is on the tab bar. On the Patterns tab, and inside
+the Settings form, digits are text input — use `←` / `→` there (after `Esc` in
+the Settings form).
+
+On terminals narrower than the tab bar, the bar scrolls sideways to keep the
+active tab visible.
 
 ### Settings tab shortcuts
 
+Arriving on the Settings tab leaves focus on the tab bar, so `←` / `→` and the
+number keys keep working. The hint line at the bottom of the tab always shows
+the keys that apply to the current focus.
+
+| Key | Where | Action |
+|-----|-------|--------|
+| `Enter` (or `Tab` / `↓`) | Tab bar | Step into the form (retention field) |
+| `Esc` | Form | Step back out to the tab bar |
+| `Tab` / `Shift+Tab` | Form | Move between the field and the buttons |
+| `Enter` | Form | Activate the focused button |
+| `Ctrl+S` | Tab bar or form | Save log retention days |
+| `Ctrl+F` | Tab bar or form | Flush events older than retention window now |
+| `Ctrl+D` | Tab bar or form | Disable SSH (confirmation required) |
+| `Ctrl+E` | Tab bar or form | Enable SSH (confirmation required) |
+
+### Resources tab
+
+A live process table, refreshed every 2 seconds.
+
 | Key | Action |
 |-----|--------|
-| `Tab` / `Enter` | Navigate fields and buttons |
-| `Ctrl+S` | Save log retention days |
-| `Ctrl+F` | Flush events older than retention window now |
-| `Ctrl+D` | Disable SSH (confirmation required) |
-| `Ctrl+E` | Enable SSH (confirmation required) |
+| `↑` / `↓` | Move the highlighted row |
+| `PgUp` / `PgDn` | Move a page |
+| `Home` / `End` | First / last process |
+| `c` | Sort by CPU (highest first) |
+| `m` | Sort by RSS (highest first) |
+
+| Column | Meaning |
+|--------|---------|
+| `PID` | Process ID |
+| `NAME` | Process name; falls back to the executable's file name when the name itself is not readable |
+| `CPU%` | CPU used since the previous refresh, relative to **one core** — a process using two full cores shows `200.0` |
+| `RSS` | Resident set size: physical memory currently mapped by the process, including pages shared with other processes |
+
+The two bars above the table are host-wide: `CPU` is the share of **all cores**
+in use (0–100 %), and `Mem` is used system RAM out of total RAM as reported by
+the OS. Because RSS counts shared pages once per process, the RSS column does
+not add up to the `Mem` figure.
+
+Behavior worth knowing:
+
+- **`—` means "not readable", never zero.** A value the OS would not provide is
+  shown as `—` and sorted after every real value, including a genuine `0.0`.
+- **First sample.** CPU % is a difference between two refreshes, so every
+  process shows `—` for CPU on the first refresh (about 2 seconds), a newly
+  started process shows `—` once, and the system `CPU` bar shows `n/a` until
+  the second sample.
+- **Permissions.** Without root, macOS does not expose CPU time or memory for
+  other users' processes; they stay in the table with `—`. Run with `sudo` to
+  see them. Sentinel does not estimate values it cannot read.
+- **Selection** follows the highlighted process as rows reorder (matched by PID
+  and start time, so a recycled PID is not followed). A highlight left on the
+  first row stays on the first row. Changing the sort returns to the first row.
+- **Not persisted.** Resource samples are display-only: they are not written to
+  `sentinel.db`, not sent through the event bus, and not available to
+  `--query`. The tab exists only in the terminal TUI, not in `--headless` or
+  `--desktop` mode.
+- **Platform status.** The Resources tab has been run and tested on macOS
+  only. It is built on gopsutil and cross-compiles for Linux and Windows, but
+  it has not been run on either; treat the figures there as unverified.
 
 ---
 
@@ -228,8 +291,8 @@ OS Kernel
 |-------|---------|------|
 | Core types | `internal/core/` | Shared event, process, network, DNS, file, finding structs |
 | Event bus | `internal/eventbus/` | Bounded fan-out pub/sub queue (capacity 1000) |
-| Collectors | `internal/collector/` | OS-specific data sources (process, network, DNS, file) |
-| Monitors | `internal/monitor/` | Collector → bus adapters |
+| Collectors | `internal/collector/` | OS-specific data sources (process, network, DNS, file, resource usage) |
+| Monitors | `internal/monitor/` | Collector → bus adapters (the resource monitor feeds the TUI directly, bypassing the bus) |
 | Detection | `internal/detection/` | Process rules, network lifecycle, correlation engine |
 | Finding sink | `internal/finding/` | Routes findings to TUI or console |
 | TUI | `cmd/sentinel/ui.go` | tview-based terminal UI |
@@ -308,6 +371,7 @@ sentinel/
 │   ├── main.go               # Platform-neutral entry point
 │   ├── password.go           # Password gate (first-run setup + login prompt)
 │   ├── ui.go                 # Terminal TUI (tview)
+│   ├── ui_resources.go       # Resources tab (live process monitor)
 │   ├── platform_linux.go     # Linux: fanotify + libpcap wiring
 │   ├── platform_darwin.go    # macOS: Endpoint Security + libpcap wiring
 │   └── platform_windows.go   # Windows: ReadDirectoryChangesW + Npcap wiring
@@ -319,7 +383,8 @@ sentinel/
 │   │   ├── process/          # gopsutil process collector
 │   │   ├── network/          # gopsutil network collector
 │   │   ├── dns/              # libpcap/Npcap DNS collector (Linux + macOS + Windows)
-│   │   └── file/             # fanotify (Linux) + ES (macOS) + RDC (Windows)
+│   │   ├── file/             # fanotify (Linux) + ES (macOS) + RDC (Windows)
+│   │   └── resource/         # gopsutil CPU / memory usage for the Resources tab
 │   ├── monitor/              # Collector → bus adapters
 │   ├── detection/
 │   │   ├── process/          # Process lifecycle + suspicious child rules

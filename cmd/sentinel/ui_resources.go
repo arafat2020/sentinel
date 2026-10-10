@@ -22,7 +22,7 @@ const (
 
 func (s resourceSort) String() string {
 	if s == sortByMemory {
-		return "memory"
+		return "RSS"
 	}
 	return "CPU"
 }
@@ -30,9 +30,17 @@ func (s resourceSort) String() string {
 const (
 	resourceMeterWidth = 30
 	resourceHeaderRows = 1
+
+	// resourceUnavailable stands in for a value that could not be measured,
+	// so it is never mistaken for a real zero.
+	resourceUnavailable = "—"
 )
 
-// ResourcesPage is the live process monitor (tab 8). Snapshots arrive from a
+// ResourcesPage is the live process monitor (tab 8).
+//
+// Columns: CPU% is relative to one core (so it can exceed 100) and RSS is the
+// process's resident set size, i.e. physical memory currently mapped,
+// including pages shared with other processes. Snapshots arrive from a
 // background goroutine via SetSnapshot; everything else runs on the tview
 // event loop.
 type ResourcesPage struct {
@@ -66,7 +74,8 @@ func NewResourcesPage() *ResourcesPage {
 
 	hint := tview.NewTextView().
 		SetDynamicColors(true).
-		SetText("[gray]  ↑/↓ PgUp/PgDn Home/End = select    c = sort by CPU    m = sort by memory[-]")
+		SetText("[gray]  ↑/↓ PgUp/PgDn Home/End = select    c = sort by CPU    m = sort by RSS (memory)    " +
+			resourceUnavailable + " = not readable[-]")
 	hint.SetBorder(false)
 
 	rp.root = tview.NewFlex().SetDirection(tview.FlexRow).
@@ -109,14 +118,17 @@ func (rp *ResourcesPage) setSort(by resourceSort) {
 		return
 	}
 	rp.sortBy = by
-	rp.rows = nil // forget the followed process so the view returns to the top
-	rp.Render()
+	rp.render(true)
 	rp.table.ScrollToBeginning()
 }
 
-// Render rebuilds the widgets from the latest snapshot. Must be called on the
-// tview event loop.
-func (rp *ResourcesPage) Render() {
+// Render rebuilds the widgets from the latest snapshot, keeping the current
+// selection on its process. Must be called on the tview event loop.
+func (rp *ResourcesPage) Render() { rp.render(false) }
+
+// render rebuilds the widgets. With selectTop the highlight moves to the
+// first process row instead of following the previously selected process.
+func (rp *ResourcesPage) render(selectTop bool) {
 	rp.mu.Lock()
 	snap := rp.latest
 	rp.mu.Unlock()
@@ -130,19 +142,22 @@ func (rp *ResourcesPage) Render() {
 
 	rp.summary.SetText(formatSummary(snap, rp.sortBy))
 
-	prevRow, _ := rp.table.GetSelection()
 	rows := sortProcessUsage(snap.Processes, rp.sortBy)
-	selected := selectionRow(prevRow-resourceHeaderRows, rp.rows, rows)
+	selected := 0
+	if !selectTop {
+		prevRow, _ := rp.table.GetSelection()
+		selected = selectionRow(prevRow-resourceHeaderRows, rp.rows, rows)
+	}
 
 	for i, p := range rows {
 		row := i + resourceHeaderRows
 		rp.table.SetCell(row, 0, tview.NewTableCell(strconv.Itoa(int(p.PID))).
 			SetAlign(tview.AlignRight))
-		rp.table.SetCell(row, 1, tview.NewTableCell(tview.Escape(p.Name)).
+		rp.table.SetCell(row, 1, tview.NewTableCell(tview.Escape(formatProcessName(p))).
 			SetExpansion(1))
-		rp.table.SetCell(row, 2, tview.NewTableCell(formatPercent(p.CPUPercent)).
+		rp.table.SetCell(row, 2, tview.NewTableCell(formatProcessCPU(p)).
 			SetAlign(tview.AlignRight))
-		rp.table.SetCell(row, 3, tview.NewTableCell(formatBytes(p.MemoryBytes)).
+		rp.table.SetCell(row, 3, tview.NewTableCell(formatProcessMemory(p)).
 			SetAlign(tview.AlignRight))
 	}
 	for rp.table.GetRowCount() > len(rows)+resourceHeaderRows {
@@ -156,7 +171,7 @@ func (rp *ResourcesPage) Render() {
 }
 
 func (rp *ResourcesPage) renderHeader() {
-	titles := [...]string{"PID", "NAME", "CPU%", "MEM"}
+	titles := [...]string{"PID", "NAME", "CPU%", "RSS"}
 	sorted := 2
 	if rp.sortBy == sortByMemory {
 		sorted = 3
@@ -180,8 +195,9 @@ func (rp *ResourcesPage) renderHeader() {
 }
 
 // sortProcessUsage returns a copy of procs ordered by the given column,
-// highest first. Ties fall back to PID so equal rows do not jump around
-// between refreshes.
+// highest first. Processes whose value for that column is unavailable go
+// last: an unknown figure is not a low one. Ties fall back to PID so equal
+// rows do not jump around between refreshes.
 func sortProcessUsage(procs []core.ProcessUsage, by resourceSort) []core.ProcessUsage {
 	out := make([]core.ProcessUsage, len(procs))
 	copy(out, procs)
@@ -190,11 +206,17 @@ func sortProcessUsage(procs []core.ProcessUsage, by resourceSort) []core.Process
 		a, b := out[i], out[j]
 		switch by {
 		case sortByMemory:
-			if a.MemoryBytes != b.MemoryBytes {
+			if a.MemoryValid != b.MemoryValid {
+				return a.MemoryValid
+			}
+			if a.MemoryValid && a.MemoryBytes != b.MemoryBytes {
 				return a.MemoryBytes > b.MemoryBytes
 			}
 		default:
-			if a.CPUPercent != b.CPUPercent {
+			if a.CPUValid != b.CPUValid {
+				return a.CPUValid
+			}
+			if a.CPUValid && a.CPUPercent != b.CPUPercent {
 				return a.CPUPercent > b.CPUPercent
 			}
 		}
@@ -207,16 +229,18 @@ func sortProcessUsage(procs []core.ProcessUsage, by resourceSort) []core.Process
 // selectionRow decides which index of next should be highlighted, given the
 // index highlighted in prev. A selection on the first row stays on the first
 // row (so the default view keeps showing the top consumer); any other
-// selection follows its process to wherever it moved. If that process is
+// selection follows its process to wherever it moved. Processes are matched
+// by PID and start time (see core.ProcessUsage.SameProcess), so a recycled
+// PID is not mistaken for the process that was selected. If that process is
 // gone, the cursor stays where it was, clamped to the new length.
 func selectionRow(prevIndex int, prev, next []core.ProcessUsage) int {
 	if len(next) == 0 || prevIndex <= 0 {
 		return 0
 	}
 	if prevIndex < len(prev) {
-		pid := prev[prevIndex].PID
+		selected := prev[prevIndex]
 		for i, p := range next {
-			if p.PID == pid {
+			if p.SameProcess(selected) {
 				return i
 			}
 		}
@@ -233,14 +257,14 @@ func formatSummary(snap *core.ResourceSnapshot, by resourceSort) string {
 	sys := snap.System
 
 	if sys.CPUValid {
-		fmt.Fprintf(&b, "  CPU  %s  %s%%\n", formatMeter(sys.CPUPercent, resourceMeterWidth), formatPercent(sys.CPUPercent))
+		fmt.Fprintf(&b, "  CPU  %s  %s%% of all cores\n", formatMeter(sys.CPUPercent, resourceMeterWidth), formatPercent(sys.CPUPercent))
 	} else {
 		b.WriteString("  CPU  [gray]n/a[-]\n")
 	}
 
 	if sys.MemoryValid {
 		pct := float64(sys.MemoryUsed) / float64(sys.MemoryTotal) * 100
-		fmt.Fprintf(&b, "  Mem  %s  %s / %s (%s%%)\n",
+		fmt.Fprintf(&b, "  Mem  %s  %s used of %s system RAM (%s%%)\n",
 			formatMeter(pct, resourceMeterWidth),
 			formatBytes(sys.MemoryUsed),
 			formatBytes(sys.MemoryTotal),
@@ -280,6 +304,27 @@ func formatMeter(percent float64, width int) string {
 		strings.Repeat("█", filled),
 		strings.Repeat("░", width-filled),
 	)
+}
+
+func formatProcessName(p core.ProcessUsage) string {
+	if p.Name == "" {
+		return resourceUnavailable
+	}
+	return p.Name
+}
+
+func formatProcessCPU(p core.ProcessUsage) string {
+	if !p.CPUValid {
+		return resourceUnavailable
+	}
+	return formatPercent(p.CPUPercent)
+}
+
+func formatProcessMemory(p core.ProcessUsage) string {
+	if !p.MemoryValid {
+		return resourceUnavailable
+	}
+	return formatBytes(p.MemoryBytes)
 }
 
 func formatPercent(p float64) string {

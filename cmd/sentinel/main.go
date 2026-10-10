@@ -257,6 +257,12 @@ func main() {
 		ui.UpdateResources,
 	)
 
+	// Tell the correlation engine about processes that are already running,
+	// so they can be recognised as parents of what they spawn from now on.
+	if snapshot, err := procCollector.Collect(ctx); err == nil {
+		corrEngine.Seed(snapshot.Processes)
+	}
+
 	bus.Start(ctx)
 	go processMonitor.Run(ctx)
 	go netMonitor.Run(ctx)

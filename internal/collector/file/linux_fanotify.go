@@ -82,8 +82,11 @@ func (b *realFanotifyBackend) start(enqueue func(linuxFileEvent)) error {
 	b.fd = fd
 
 	// mountFd anchors open_by_handle_at calls to the watched filesystem,
-	// allowing FID records to be resolved into directory paths.
-	mountFd, err := unix.Open(b.watchPath, unix.O_PATH|unix.O_RDONLY, 0)
+	// allowing FID records to be resolved into directory paths. It must be
+	// an ordinary descriptor: open_by_handle_at refuses one opened with
+	// O_PATH (EBADF), and every event would then be reported without a
+	// path.
+	mountFd, err := unix.Open(b.watchPath, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {
 		unix.Close(fd)
 		return fmt.Errorf("open watch path for mount anchor: %w", err)

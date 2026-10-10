@@ -22,12 +22,15 @@ type field[T any] struct {
 	// number reads a numeric field; ok is false when the part of the event
 	// that carries it is absent.
 	number func(*T) (value int64, ok bool)
+	// path marks a string field that holds a filesystem path. Two paths are
+	// compared after cleaning, so /tmp//x and /tmp/x are the same file.
+	path bool
 }
 
 // processFields are the fields a process match block may use.
 var processFields = map[string]field[core.Process]{
 	"name":    {kind: kindString, text: func(p *core.Process) string { return p.Name }},
-	"exe":     {kind: kindString, text: func(p *core.Process) string { return p.Executable }},
+	"exe":     {kind: kindString, path: true, text: func(p *core.Process) string { return p.Executable }},
 	"cmdline": {kind: kindString, text: func(p *core.Process) string { return p.CommandLine }},
 	"user":    {kind: kindString, text: func(p *core.Process) string { return p.User }},
 }
@@ -86,14 +89,33 @@ var dnsFields = map[string]field[core.Event]{
 	}},
 }
 
+// processEventFields are the fields of PROCESS_START and PROCESS_EXIT
+// events: those of the process the event is about.
+var processEventFields = map[string]field[core.Event]{
+	"name":    {kind: kindString, text: func(e *core.Event) string { return processOf(e).Name }},
+	"exe":     {kind: kindString, path: true, text: func(e *core.Event) string { return processOf(e).Executable }},
+	"cmdline": {kind: kindString, text: func(e *core.Event) string { return processOf(e).CommandLine }},
+	"user":    {kind: kindString, text: func(e *core.Event) string { return processOf(e).User }},
+}
+
+var noProcess core.Process
+
+// processOf returns the process an event is about, or an empty one.
+func processOf(e *core.Event) *core.Process {
+	if e.Process == nil {
+		return &noProcess
+	}
+	return e.Process
+}
+
 var fileFields = map[string]field[core.Event]{
-	"path": {kind: kindString, text: func(e *core.Event) string {
+	"path": {kind: kindString, path: true, text: func(e *core.Event) string {
 		if e.File == nil {
 			return ""
 		}
 		return e.File.Path
 	}},
-	"old_path": {kind: kindString, text: func(e *core.Event) string {
+	"old_path": {kind: kindString, path: true, text: func(e *core.Event) string {
 		if e.File == nil {
 			return ""
 		}
@@ -111,6 +133,8 @@ func eventFields(eventType core.EventType) map[string]field[core.Event] {
 		return dnsFields
 	case core.EventFileCreate, core.EventFileModify, core.EventFileDelete, core.EventFileRename:
 		return fileFields
+	case core.EventProcessStart, core.EventProcessExit:
+		return processEventFields
 	default:
 		return nil
 	}

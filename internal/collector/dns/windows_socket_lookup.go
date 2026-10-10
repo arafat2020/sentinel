@@ -36,9 +36,9 @@ type ProcessResolver interface {
 }
 
 var (
-	iphlpapi            = windows.NewLazySystemDLL("iphlpapi.dll")
-	procGetExtTcpTable  = iphlpapi.NewProc("GetExtendedTcpTable")
-	procGetExtUdpTable  = iphlpapi.NewProc("GetExtendedUdpTable")
+	iphlpapi           = windows.NewLazySystemDLL("iphlpapi.dll")
+	procGetExtTcpTable = iphlpapi.NewProc("GetExtendedTcpTable")
+	procGetExtUdpTable = iphlpapi.NewProc("GetExtendedUdpTable")
 )
 
 const (
@@ -159,7 +159,7 @@ func callExtTable(proc *windows.LazyProc, tableClass uint32) ([]byte, bool) {
 		r, _, _ := proc.Call(
 			uintptr(unsafe.Pointer(&buf[0])),
 			uintptr(unsafe.Pointer(&size)),
-			0,          // bOrder = false (unsorted)
+			0, // bOrder = false (unsorted)
 			uintptr(afINET),
 			uintptr(tableClass),
 			0,

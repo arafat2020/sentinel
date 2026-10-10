@@ -1,0 +1,56 @@
+name: Integration
+
+# The process collectors talk to the kernel, so they are tested against a real
+# one: the eBPF programs are loaded, the netlink connector is opened, and real
+# processes are started. This needs root, which the hosted runner allows.
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  process-collectors:
+    name: Process collectors (eBPF, proc connector)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # clang-18 and llvm-strip-18 are pinned because the committed eBPF
+      # objects must be reproduced byte for byte. The libbpf headers are in
+      # the repository, so no libbpf package is needed. libpcap is for the
+      # packages the end-to-end test links.
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y clang-18 llvm-18 libpcap-dev curl
+
+      - name: Show the kernel
+        run: |
+          uname -r
+          ls -l /sys/kernel/btf/vmlinux
+
+      # The eBPF objects and their Go bindings are committed so that building
+      # Sentinel needs no clang. They must be what the sources produce.
+      - name: Generated eBPF objects are up to date
+        run: make generate-check
+
+      - name: Unit tests
+        run: go test -count=1 ./internal/collector/process/...
+
+      - name: Integration tests (root)
+        run: sudo env "PATH=$PATH" "GOFLAGS=-buildvcs=false" go test -tags integration -count=1 -v ./internal/collector/process/...
+
+      # The end-to-end test above depends on fanotify reporting the path of
+      # the file that was created.
+      - name: fanotify reports paths (root)
+        run: sudo env "PATH=$PATH" "GOFLAGS=-buildvcs=false" go test -tags integration -count=1 -v -run TestFanotifyReportsPaths ./internal/collector/file/

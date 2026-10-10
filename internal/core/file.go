@@ -12,15 +12,15 @@ const (
 )
 
 type FileEvent struct {
-	Timestamp time.Time
+	Timestamp time.Time `json:"timestamp,omitzero"`
 
-	PID  int32
-	PPID int32
+	PID  int32 `json:"pid"`
+	PPID int32 `json:"ppid"`
 
-	Path    string
-	OldPath string
+	Path    string `json:"path,omitempty"`
+	OldPath string `json:"old_path,omitempty"`
 
-	Operation FileOperation
+	Operation FileOperation `json:"operation,omitempty"`
 
-	Process *Process
+	Process *Process `json:"process,omitempty"`
 }

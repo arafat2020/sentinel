@@ -302,7 +302,10 @@ func (s *Store) Query(f QueryFilter) ([]Event, error) {
 		q += " AND ts <= ?"
 		args = append(args, f.Until.UTC().Format(time.RFC3339))
 	}
-	q += " ORDER BY ts ASC LIMIT ?"
+	// Rows are inserted in the order they were written, so the row id is
+	// the order of events. The timestamp column is text with a variable
+	// number of fractional digits, which does not sort chronologically.
+	q += " ORDER BY id ASC LIMIT ?"
 	args = append(args, limit)
 
 	rows, err := s.db.Query(q, args...)

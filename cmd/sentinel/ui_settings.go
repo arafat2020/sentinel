@@ -32,7 +32,7 @@ type settingsHost struct {
 
 const (
 	settingsShortcutHint = "Ctrl+S = Save    Ctrl+F = Flush    Ctrl+D = Disable SSH    Ctrl+E = Enable SSH"
-	settingsHintTabs     = "[gray]  ←/→ 1-8 = switch tab    Enter = edit settings    " + settingsShortcutHint + "[-]"
+	settingsHintTabs     = "[gray]  ←/→ 1-9 = switch tab    Enter = edit settings    " + settingsShortcutHint + "[-]"
 	settingsHintForm     = "[gray]  Esc = back to tabs    Tab = next field    " + settingsShortcutHint + "[-]"
 )
 

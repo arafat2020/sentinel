@@ -12,7 +12,8 @@ import (
 	"github.com/arafat2020/sentinel/internal/eventbus"
 )
 
-// healthLogInterval is how often headless mode logs a health line.
+// healthLogInterval is how often headless mode logs a health line, unless
+// --health-interval says otherwise.
 const healthLogInterval = 60 * time.Second
 
 // health gathers, in one place, everything that says whether Sentinel is

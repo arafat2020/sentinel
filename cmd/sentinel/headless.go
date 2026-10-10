@@ -127,7 +127,11 @@ func runHeadless(ctx context.Context, patterns config.PatternSet, patternsPath s
 	// One line a minute says whether Sentinel is keeping up.
 	report := &health{collection: collection, bus: bus, engine: corrEngine}
 	go func() {
-		ticker := time.NewTicker(healthLogInterval)
+		interval := *collectors.healthInterval
+		if interval <= 0 {
+			interval = healthLogInterval
+		}
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
 			select {

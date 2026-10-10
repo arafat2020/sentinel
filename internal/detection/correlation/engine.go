@@ -28,7 +28,15 @@ type record struct {
 	// set, the record is a tombstone: it stays for one window so that
 	// patterns through an exited process can still match, then is evicted.
 	exitedAt time.Time
+	// previous holds the images the process ran before its current one,
+	// oldest first, at most MaxPreviousImages of them.
+	previous []core.ProcessImage
 }
+
+// MaxPreviousImages is how many replaced program images are remembered for
+// one process. A process that execs more often than that keeps the most
+// recent ones.
+const MaxPreviousImages = 4
 
 // Engine correlates process events into behavioral findings. The time-window
 // and retention rules it guarantees are described in the package
@@ -237,6 +245,9 @@ func (e *Engine) Process(event core.Event) {
 	if event.Type == core.EventProcessExit && known.exitedAt.IsZero() {
 		known.exitedAt = event.Timestamp
 	}
+	if event.Type == core.EventProcessExec {
+		known.exec(event.Process, event.Timestamp)
+	}
 
 	// Already outside the window: the bookkeeping above still applies, but
 	// the event can never contribute to a match.
@@ -268,6 +279,41 @@ func (e *Engine) Process(event core.Event) {
 	chain := chains[0]
 	chain.Add(event)
 	chain.Prune(cutoff)
+}
+
+// exec records that the process replaced its program image. The process is
+// the same one, with the same identity, parent and history; what roles match
+// against from now on is the new image. The image it had is kept, so that a
+// finding can still show what the process was before.
+//
+// An exec event that says nothing about the new image leaves the record as it
+// is: an unknown image is not a reason to forget the known one.
+func (r *record) exec(image *core.Process, at time.Time) {
+	if image.Name == "" && image.Executable == "" && image.CommandLine == "" {
+		return
+	}
+
+	current := &r.process
+	if image.Name == current.Name && image.Executable == current.Executable && image.CommandLine == current.CommandLine {
+		return
+	}
+
+	if len(r.previous) == MaxPreviousImages {
+		copy(r.previous, r.previous[1:])
+		r.previous = r.previous[:MaxPreviousImages-1]
+	}
+	r.previous = append(r.previous, core.ProcessImage{
+		Name:        current.Name,
+		Executable:  current.Executable,
+		CommandLine: current.CommandLine,
+		ReplacedAt:  at,
+	})
+
+	current.Name, current.Executable, current.CommandLine = image.Name, image.Executable, image.CommandLine
+	// A set-user-ID program changes who the process runs as.
+	if image.User != "" {
+		current.User = image.User
+	}
 }
 
 // canonical resolves a process description that lacks a start time to the
@@ -919,8 +965,17 @@ func (e *Engine) finding(pattern *compiledPattern, match Match, now time.Time) c
 	subject := processes[len(processes)-1]
 
 	roles := make(map[string]core.Process, len(processes))
+	var previous map[string][]core.ProcessImage
 	for i, process := range processes {
-		roles[pattern.Processes[i].ID] = process
+		role := pattern.Processes[i].ID
+		roles[role] = process
+
+		if known := e.records[process.Identity()]; known != nil && len(known.previous) > 0 {
+			if previous == nil {
+				previous = make(map[string][]core.ProcessImage)
+			}
+			previous[role] = append([]core.ProcessImage(nil), known.previous...)
+		}
 	}
 
 	return core.Finding{
@@ -935,6 +990,8 @@ func (e *Engine) finding(pattern *compiledPattern, match Match, now time.Time) c
 			Processes: processes,
 			Roles:     roles,
 			Events:    e.evidenceEvents(pattern, match, now),
+
+			PreviousImages: previous,
 		},
 	}
 }

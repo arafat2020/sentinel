@@ -131,6 +131,7 @@ var fileFields = map[string]field[core.Event]{
 var knownEventTypes = map[core.EventType]bool{
 	core.EventProcessStart:      true,
 	core.EventProcessExit:       true,
+	core.EventProcessExec:       true,
 	core.EventProcessSnapshot:   true,
 	core.EventNetworkConnect:    true,
 	core.EventNetworkClose:      true,
@@ -168,7 +169,7 @@ func eventFields(eventType core.EventType) map[string]field[core.Event] {
 		return dnsFields
 	case core.EventFileCreate, core.EventFileModify, core.EventFileDelete, core.EventFileRename:
 		return fileFields
-	case core.EventProcessStart, core.EventProcessExit:
+	case core.EventProcessStart, core.EventProcessExit, core.EventProcessExec:
 		return processEventFields
 	default:
 		return nil

@@ -28,6 +28,9 @@ type record struct {
 	// set, the record is a tombstone: it stays for one window so that
 	// patterns through an exited process can still match, then is evicted.
 	exitedAt time.Time
+	// has is a bit for each selective event type (see eventTypeSlot) the
+	// process is on record as having had.
+	has uint16
 	// previous holds the images the process ran before its current one,
 	// oldest first, at most MaxPreviousImages of them.
 	previous []core.ProcessImage
@@ -86,7 +89,7 @@ type Engine struct {
 	// having records, for each selective event type, the processes that
 	// have had an event of it. It may also hold a process whose events of
 	// that type have since left the window, until the next sweep.
-	having map[core.EventType]map[core.ProcessIdentity]struct{}
+	having [indexedEventTypes]map[core.ProcessIdentity]struct{}
 
 	// pendingSince is the timestamp of the oldest event taken in since the
 	// last evaluation; zero when there is none. latency records, for each
@@ -247,7 +250,6 @@ func WithClock(now func() time.Time) Option {
 func NewEngine(window time.Duration, options ...Option) *Engine {
 	e := &Engine{
 		maxTombstones: DefaultMaxTombstones,
-		having:        make(map[core.EventType]map[core.ProcessIdentity]struct{}),
 		window:        window,
 		now:           time.Now,
 		records:       make(map[core.ProcessIdentity]*record),
@@ -349,13 +351,14 @@ func (e *Engine) Process(event core.Event) {
 		}
 	}
 
-	if indexedEventType(event.Type) {
-		having := e.having[event.Type]
-		if having == nil {
-			having = make(map[core.ProcessIdentity]struct{})
-			e.having[event.Type] = having
+	// The first event of a selective type puts the process on record as
+	// having had one.
+	if slot := eventTypeSlot(event.Type); slot >= 0 && known.has&(1<<slot) == 0 {
+		known.has |= 1 << slot
+		if e.having[slot] == nil {
+			e.having[slot] = make(map[core.ProcessIdentity]struct{})
 		}
-		having[identity] = struct{}{}
+		e.having[slot][identity] = struct{}{}
 	}
 
 	chains := e.chains[identity]
@@ -906,28 +909,29 @@ func expired(r *record, cutoff time.Time) bool {
 
 // evict forgets a process entirely: its record, events, relationships and
 // index entries.
-// forgetEventTypes removes a process from the record of which processes have
-// had which events, for every type its chains no longer hold.
+// forgetEventTypes takes a process off the record for every selective event
+// type its chains no longer hold.
 func (e *Engine) forgetEventTypes(identity core.ProcessIdentity, chains []*Chain) {
-	for eventType, having := range e.having {
-		if _, listed := having[identity]; !listed {
-			continue
-		}
+	known := e.records[identity]
+	if known == nil || known.has == 0 {
+		return
+	}
 
-		held := false
-		for _, chain := range chains {
-			for i := range chain.events {
-				if chain.events[i].Type == eventType {
-					held = true
-					break
-				}
+	var held uint16
+	for _, chain := range chains {
+		for i := range chain.events {
+			if slot := eventTypeSlot(chain.events[i].Type); slot >= 0 {
+				held |= 1 << slot
 			}
 		}
+	}
 
-		if !held {
-			delete(having, identity)
+	for slot := 0; slot < indexedEventTypes; slot++ {
+		if bit := uint16(1) << slot; known.has&bit != 0 && held&bit == 0 {
+			delete(e.having[slot], identity)
 		}
 	}
+	known.has = held
 }
 
 func (e *Engine) evict(identity core.ProcessIdentity, known *record) {
@@ -1511,10 +1515,18 @@ func (w engineWorld) childCount(parent core.ProcessIdentity) int {
 }
 
 func (w engineWorld) having(eventType core.EventType) (map[core.ProcessIdentity]struct{}, bool) {
-	return w.engine.having[eventType], true
+	slot := eventTypeSlot(eventType)
+	if slot < 0 {
+		return nil, false
+	}
+	return w.engine.having[slot], true
 }
 
-func (w engineWorld) eachDescendant(parent core.ProcessIdentity, maxDepth int, visit func(core.ProcessIdentity) bool) {
+func (w engineWorld) walkTruncated() {
+	w.engine.metrics.DescendantWalksTruncated++
+}
+
+func (w engineWorld) eachDescendant(parent core.ProcessIdentity, maxDepth int, visit func(core.ProcessIdentity) bool) bool {
 	// A tombstone whose window has passed is no longer evidence of
 	// ancestry, even before the sweep removes it; the walk up from a
 	// descendant stops at one, so the walk down must too.
@@ -1523,9 +1535,7 @@ func (w engineWorld) eachDescendant(parent core.ProcessIdentity, maxDepth int, v
 		return ok
 	}
 
-	if walkDescendants(w.engine.tree, parent, maxDepth, known, visit) {
-		w.engine.metrics.DescendantWalksTruncated++
-	}
+	return walkDescendants(w.engine.tree, parent, maxDepth, known, visit)
 }
 
 func (w engineWorld) eachRelationship(visit func(parent, child core.ProcessIdentity) bool) {

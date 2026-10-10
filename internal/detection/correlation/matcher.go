@@ -183,9 +183,12 @@ type world interface {
 	// The each* methods stop when visit returns false.
 	eachChild(parent core.ProcessIdentity, visit func(core.ProcessIdentity) bool)
 	// eachDescendant visits the descendants of parent down to maxDepth
-	// generations. The walk is bounded; an implementation that cuts it
-	// short records that it did.
-	eachDescendant(parent core.ProcessIdentity, maxDepth int, visit func(core.ProcessIdentity) bool)
+	// generations. The walk is bounded, and reports whether it was cut
+	// short before reaching every descendant.
+	eachDescendant(parent core.ProcessIdentity, maxDepth int, visit func(core.ProcessIdentity) bool) (truncated bool)
+	// walkTruncated is told when a walk was cut short and nothing else
+	// could make up for it.
+	walkTruncated()
 	eachRelationship(visit func(parent, child core.ProcessIdentity) bool)
 	eachProcess(visit func(core.ProcessIdentity) bool)
 	chainsOf(core.ProcessIdentity) []*Chain
@@ -316,12 +319,20 @@ func (s *search) satisfy() {
 		// fewer processes that did that thing than there are children to
 		// look through, start from those and keep the ones this parent is
 		// above.
-		if candidates, ok := s.candidatesBelow(link); ok {
+		candidates, indexed := s.candidatesFor(link.child)
+		below := func() {
 			for identity := range candidates {
 				if s.isAncestor(parent, identity, link.depth) {
 					s.try(link.child, identity)
 				}
 			}
+		}
+
+		// Going through the children costs one step each; going through
+		// the candidates costs a walk up the tree each, of at most depth
+		// steps.
+		if indexed && len(candidates)*link.depth < s.world.childCount(parent) {
+			below()
 			break
 		}
 
@@ -331,8 +342,18 @@ func (s *search) satisfy() {
 		}
 		if link.depth == 1 {
 			s.world.eachChild(parent, visit)
-		} else {
-			s.world.eachDescendant(parent, link.depth, visit)
+			break
+		}
+
+		// A walk down several generations gives up after a fixed number of
+		// processes. If it did, the candidates cover what it did not reach;
+		// without any, the walk is counted as cut short.
+		if s.world.eachDescendant(parent, link.depth, visit) {
+			if indexed {
+				below()
+			} else {
+				s.world.walkTruncated()
+			}
 		}
 
 	case s.isBound[link.child]:
@@ -365,11 +386,11 @@ func (s *search) satisfy() {
 	}
 }
 
-// candidatesBelow returns a set of processes that includes everything below
-// the link's bound parent that could fill its child role, when that set is a
-// better place to look than the parent's children.
-func (s *search) candidatesBelow(link roleLink) (map[core.ProcessIdentity]struct{}, bool) {
-	needs := s.pattern.roles[link.child].needs
+// candidatesFor returns a set of processes that includes every process that
+// could fill the role, when the role requires an event of a type the world
+// keeps a record of. It picks the smallest such record.
+func (s *search) candidatesFor(role int) (map[core.ProcessIdentity]struct{}, bool) {
+	needs := s.pattern.roles[role].needs
 	if len(needs) == 0 {
 		return nil, false
 	}
@@ -383,18 +404,6 @@ func (s *search) candidatesBelow(link roleLink) (map[core.ProcessIdentity]struct
 		if i == 0 || len(having) < len(smallest) {
 			smallest = having
 		}
-	}
-
-	// Going through the children costs one step each. Going through the
-	// candidates costs a walk up the tree each, of at most depth steps.
-	limit := s.world.childCount(s.bound[link.parent])
-	if link.depth > 1 {
-		// The descendants are not counted anywhere; a walk through them
-		// stops at maxDescendantVisits.
-		limit = maxDescendantVisits
-	}
-	if len(smallest)*link.depth >= limit {
-		return nil, false
 	}
 
 	return smallest, true
@@ -637,8 +646,8 @@ func (w *sliceWorld) eachChild(parent core.ProcessIdentity, visit func(core.Proc
 	}
 }
 
-func (w *sliceWorld) eachDescendant(parent core.ProcessIdentity, maxDepth int, visit func(core.ProcessIdentity) bool) {
-	walkDescendants(w.topology, parent, maxDepth, nil, visit)
+func (w *sliceWorld) eachDescendant(parent core.ProcessIdentity, maxDepth int, visit func(core.ProcessIdentity) bool) bool {
+	return walkDescendants(w.topology, parent, maxDepth, nil, visit)
 }
 
 func (w *sliceWorld) eachRelationship(visit func(parent, child core.ProcessIdentity) bool) {
@@ -668,6 +677,8 @@ func (w *sliceWorld) childCount(parent core.ProcessIdentity) int {
 }
 
 func (w *sliceWorld) searched(uint64) {}
+
+func (w *sliceWorld) walkTruncated() {}
 
 // A sliceWorld keeps no record of which processes have had which events.
 func (w *sliceWorld) having(core.EventType) (map[core.ProcessIdentity]struct{}, bool) {

@@ -69,6 +69,9 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sentinel: could not load patterns (%v), using defaults\n", err)
 	}
+	for _, warning := range patternSet.Warnings {
+		fmt.Fprintf(os.Stderr, "sentinel: %s: warning: %s\n", patternsPath, warning)
+	}
 	for _, patternErr := range patternSet.Errors {
 		fmt.Fprintf(os.Stderr, "sentinel: %s: %v (skipped)\n", patternsPath, patternErr)
 	}

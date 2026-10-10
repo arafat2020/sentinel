@@ -63,6 +63,9 @@ func runHeadless(ctx context.Context, patterns config.PatternSet, patternsPath s
 	corrEngine.SetPatterns(patterns.Patterns)
 	_ = corrEngine.SetExclusions(patterns.Exclusions)
 
+	for _, warning := range patterns.Warnings {
+		logger.Printf("PATTERN WARNING %s: %s", patternsPath, warning)
+	}
 	for _, problem := range patternProblems(patterns.Errors, patterns.Patterns) {
 		logger.Printf("PATTERN ERROR %s: %s (pattern skipped)", patternsPath, problem)
 	}

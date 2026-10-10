@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/arafat2020/sentinel/internal/config"
 	"github.com/arafat2020/sentinel/internal/core"
 	"github.com/arafat2020/sentinel/internal/detection/correlation"
 	"github.com/arafat2020/sentinel/internal/eventbus"
@@ -29,7 +30,7 @@ import (
 //
 //	sentinel --headless
 //	nohup sudo sentinel --headless >> /var/log/sentinel.log 2>&1 &
-func runHeadless(ctx context.Context, initialPatterns []correlation.BehaviorPattern, patternsPath string, s *store.Store) {
+func runHeadless(ctx context.Context, patterns config.PatternSet, patternsPath string, s *store.Store) {
 	logger := log.New(os.Stdout, "", log.LstdFlags)
 	logger.Printf("sentinel %s starting in headless mode", version)
 
@@ -56,7 +57,14 @@ func runHeadless(ctx context.Context, initialPatterns []correlation.BehaviorPatt
 	// ── Correlation engine ───────────────────────────────────────────────────
 
 	corrEngine := correlation.NewEngine(5 * time.Minute)
-	corrEngine.SetPatterns(initialPatterns)
+	corrEngine.SetPatterns(patterns.Patterns)
+	_ = corrEngine.SetExclusions(patterns.Exclusions)
+
+	for _, problem := range patternProblems(patterns.Errors, patterns.Patterns) {
+		logger.Printf("PATTERN ERROR %s: %s (pattern skipped)", patternsPath, problem)
+	}
+	logger.Printf("loaded %d pattern(s) and %d exclusion(s) from %s",
+		len(patterns.Patterns), len(patterns.Exclusions), patternsPath)
 
 	// ── Bus subscribers ──────────────────────────────────────────────────────
 

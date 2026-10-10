@@ -62,10 +62,15 @@ func main() {
 		fmt.Fprintf(os.Stderr, "sentinel: could not create default patterns file: %v\n", err)
 	}
 
-	initialPatterns, err := config.LoadPatterns(patternsPath)
+	// A file that cannot be read or parsed falls back to the defaults. A
+	// file with some bad entries loads the good ones; the bad ones are
+	// reported here and again inside each interface.
+	patternSet, err := loadPatternSet(patternsPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sentinel: could not load patterns (%v), using defaults\n", err)
-		initialPatterns = correlation.DefaultPatterns()
+	}
+	for _, patternErr := range patternSet.Errors {
+		fmt.Fprintf(os.Stderr, "sentinel: %s: %v (skipped)\n", patternsPath, patternErr)
 	}
 
 	// ── SQLite event store ────────────────────────────────────────────────────
@@ -96,12 +101,12 @@ func main() {
 	}
 
 	if *headless {
-		runHeadless(ctx, initialPatterns, patternsPath, eventStore)
+		runHeadless(ctx, patternSet, patternsPath, eventStore)
 		return
 	}
 
 	if *desktop {
-		runDesktopMode(ctx, initialPatterns, patternsPath, eventStore)
+		runDesktopMode(ctx, patternSet, patternsPath, eventStore)
 		return
 	}
 
@@ -127,7 +132,9 @@ func main() {
 	// ── Correlation engine ────────────────────────────────────────────────────
 
 	corrEngine := correlation.NewEngine(5 * time.Minute)
-	corrEngine.SetPatterns(initialPatterns)
+	corrEngine.SetPatterns(patternSet.Patterns)
+	// Invalid exclusions were already reported with the load errors.
+	_ = corrEngine.SetExclusions(patternSet.Exclusions)
 
 	// ── Settings page ─────────────────────────────────────────────────────────
 
@@ -140,11 +147,12 @@ func main() {
 		ui.app,
 		ui.pages,
 		patternsPath,
-		initialPatterns,
+		patternSet.Patterns,
 		func(updated []correlation.BehaviorPattern) {
 			corrEngine.SetPatterns(updated)
 		},
 	)
+	patternsPage.SetLoadErrors(patternSet.Errors)
 	ui.SetPatternsPage(patternsPage)
 
 	// ── Bus subscribers → UI tabs ─────────────────────────────────────────────

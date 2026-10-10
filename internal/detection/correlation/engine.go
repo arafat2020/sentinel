@@ -74,6 +74,15 @@ type Engine struct {
 	// which is also the order their suppression lapses.
 	suppressed []suppression
 	lastID     int64
+
+	// exclusions drop findings whose processes match; excluded counts the
+	// findings dropped, per rule.
+	exclusions []compiledExclusion
+	excluded   map[string]int
+	// rates tracks each rule's findings in its current window, for the
+	// per-rule limit. limited is how many rules have findings held back.
+	rates   map[string]*rateState
+	limited int
 }
 
 // suppression is one emitted finding that must not be repeated yet.
@@ -81,6 +90,21 @@ type suppression struct {
 	key       string
 	at        time.Time
 	processes []core.ProcessIdentity
+}
+
+// compiledExclusion is an Exclusion ready to apply.
+type compiledExclusion struct {
+	Exclusion
+	matches processPredicate
+}
+
+// rateState is one rule's use of its findings-per-window allowance.
+type rateState struct {
+	windowStart time.Time
+	emitted     int
+	// heldBack counts findings not emitted because the rule was over its
+	// limit; it is reported once when the window rolls over.
+	heldBack int
 }
 
 // Option configures an Engine.
@@ -107,6 +131,8 @@ func NewEngine(window time.Duration, options ...Option) *Engine {
 		matcher:  NewMatcher(),
 		rescan:   true,
 		emitted:  make(map[string]time.Time),
+		excluded: make(map[string]int),
+		rates:    make(map[string]*rateState),
 	}
 
 	for _, option := range options {
@@ -127,7 +153,7 @@ func (e *Engine) Seed(processes []core.Process) {
 	now := e.advance(e.now())
 
 	for _, process := range processes {
-		e.observe(process, now)
+		e.observe(e.canonical(process), now)
 	}
 
 	e.rescan = true
@@ -147,7 +173,12 @@ func (e *Engine) Process(event core.Event) {
 		return
 	}
 
-	process := *event.Process
+	// Resolve the event to the process the engine already knows, when the
+	// event itself does not say which one it is.
+	process := e.canonical(*event.Process)
+	if process.Identity() != event.Process.Identity() {
+		event.Process = &process
+	}
 	identity := process.Identity()
 
 	// An event cannot be observed before it happens, and one that carries
@@ -185,6 +216,35 @@ func (e *Engine) Process(event core.Event) {
 	chain := chains[0]
 	chain.Add(event)
 	chain.Prune(cutoff)
+}
+
+// canonical resolves a process description that lacks a start time to the
+// process known to hold that PID.
+//
+// Collectors report a process's start time on every event, and it is half of
+// the process's identity. When the OS will not give one (the process is
+// exiting, or access is denied at that moment) the event arrives with a PID
+// and no start time. Treating that as a separate process would split one
+// process's activity in two, and its events would never be correlated with
+// the rest. The holder of the PID is the only process the event can be
+// about, so the event is attributed to it. With no known holder the
+// description is kept as it is.
+func (e *Engine) canonical(process core.Process) core.Process {
+	if startKnown(process.StartTime) {
+		return process
+	}
+
+	holderID, held := e.pids[process.PID]
+	if !held {
+		return process
+	}
+
+	holder := e.records[holderID]
+	if holder == nil || !holder.exitedAt.IsZero() {
+		return process
+	}
+
+	return holder.process
 }
 
 // observe returns the record for process, creating it and working out its
@@ -247,6 +307,15 @@ func (e *Engine) claimPID(added *record, now time.Time) {
 		// Start times cannot be compared, but the holder is known to have
 		// ended, so the PID is free to have been handed out again.
 
+	case !startKnown(holder.process.StartTime) && startKnown(added.process.StartTime):
+		// The holder was only ever seen without a start time. This is the
+		// first full description of the process with that PID, so it takes
+		// over, and later events without a start time resolve to it.
+		e.markGone(holder, now)
+		e.pids[pid] = added.process.Identity()
+		e.inheritChildren(holder, added)
+		return
+
 	default:
 		// Start times cannot be compared and the holder is still running.
 		// Keep the holder: replacing it on every disagreement between
@@ -285,6 +354,22 @@ func (e *Engine) reattributeChildren(previous, current *record) {
 			continue
 		}
 		moved = append(moved, childID)
+	}
+
+	for _, childID := range moved {
+		e.tree.link(current.process.Identity(), childID)
+	}
+}
+
+// inheritChildren moves every child of previous to current that current can
+// plausibly have spawned.
+func (e *Engine) inheritChildren(previous, current *record) {
+	var moved []core.ProcessIdentity
+
+	for childID := range e.tree.children[previous.process.Identity()] {
+		if child := e.records[childID]; child != nil && plausibleParent(current, child.process) {
+			moved = append(moved, childID)
+		}
 	}
 
 	for _, childID := range moved {
@@ -540,6 +625,11 @@ func hasNetworkActivity(chains []*Chain) bool {
 // elapsed since it was last emitted, preventing duplicate alerts for a
 // sustained behaviour; a different set of processes matching the same rule
 // is a different finding and is reported.
+//
+// A new finding is dropped if an exclusion covers it, and held back if its
+// rule has already produced its limit of findings in the current window. A
+// rule's held-back findings are reported as a single INFO finding when its
+// window rolls over.
 func (e *Engine) DetectBehaviors() []core.Finding {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -547,6 +637,8 @@ func (e *Engine) DetectBehaviors() []core.Finding {
 	now := e.advance(e.now())
 	e.maybeSweep(now)
 	e.releaseSuppressions(now)
+
+	findings := e.rateLimitSummaries(now)
 
 	// Only matches that include a changed process can be new or newly
 	// reportable. Everything else was evaluated the last time round, time
@@ -556,7 +648,7 @@ func (e *Engine) DetectBehaviors() []core.Finding {
 	if e.rescan {
 		seeds = nil
 	} else if len(seeds) == 0 {
-		return nil
+		return findings
 	}
 
 	defer func() {
@@ -564,16 +656,14 @@ func (e *Engine) DetectBehaviors() []core.Finding {
 		e.rescan = false
 	}()
 
-	var findings []core.Finding
-
 	cutoff := now.Add(-e.window)
 	view := engineWorld{engine: e, cutoff: cutoff}
-	matchEvents := func(p ProcessPattern, chain *Chain) bool {
-		return e.matcher.MatchEventsAfter(p, chain, cutoff)
+	window := func(chain *Chain) []core.Event {
+		return chain.EventsAfter(cutoff)
 	}
 
 	for _, pattern := range e.patterns {
-		matches := e.matcher.find(pattern, view, matchEvents, seeds)
+		matches := e.matcher.find(pattern, view, window, seeds)
 		if len(matches) == 0 {
 			continue
 		}
@@ -590,10 +680,114 @@ func (e *Engine) DetectBehaviors() []core.Finding {
 				continue
 			}
 
+			// Whatever happens to it next, this incident has been dealt
+			// with for one window: it is counted once, not on every
+			// evaluation.
 			e.suppress(keys[i], match, now)
+
+			if e.isExcluded(pattern.Name, match) {
+				e.excluded[pattern.Name]++
+				continue
+			}
+
+			if !e.withinRateLimit(pattern, now) {
+				continue
+			}
 
 			findings = append(findings, e.finding(pattern.BehaviorPattern, match, now))
 		}
+	}
+
+	return findings
+}
+
+// isExcluded reports whether an exclusion covers a finding of the rule with
+// these processes.
+func (e *Engine) isExcluded(rule string, match Match) bool {
+	for i := range e.exclusions {
+		exclusion := &e.exclusions[i]
+		if !exclusion.AppliesTo(rule) {
+			continue
+		}
+
+		for j := range match.Processes {
+			if exclusion.matches(&match.Processes[j]) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// withinRateLimit records one more finding for the rule and reports whether
+// it may be emitted. A rule's window starts with its first finding and lasts
+// one correlation window.
+func (e *Engine) withinRateLimit(pattern *compiledPattern, now time.Time) bool {
+	state := e.rates[pattern.Name]
+	if state == nil {
+		state = &rateState{windowStart: now}
+		e.rates[pattern.Name] = state
+	}
+
+	if state.emitted < pattern.maxFindings {
+		state.emitted++
+		return true
+	}
+
+	if state.heldBack == 0 {
+		e.limited++
+	}
+	state.heldBack++
+
+	return false
+}
+
+// rateLimitSummaries closes every rule window that has ended. A rule that
+// had findings held back gets one INFO finding saying how many.
+func (e *Engine) rateLimitSummaries(now time.Time) []core.Finding {
+	// Windows only need closing promptly when something was held back;
+	// otherwise the next sweep-sized check is soon enough, and the common
+	// case costs nothing.
+	if e.limited == 0 && len(e.rates) == 0 {
+		return nil
+	}
+
+	var rules []string
+
+	for rule, state := range e.rates {
+		if now.Sub(state.windowStart) < e.window {
+			continue
+		}
+
+		if state.heldBack > 0 {
+			rules = append(rules, rule)
+			continue
+		}
+		delete(e.rates, rule)
+	}
+
+	if len(rules) == 0 {
+		return nil
+	}
+
+	sort.Strings(rules)
+
+	findings := make([]core.Finding, 0, len(rules))
+	for _, rule := range rules {
+		state := e.rates[rule]
+
+		findings = append(findings, core.Finding{
+			ID:          e.nextFindingID(now),
+			Timestamp:   now,
+			Rule:        rule,
+			Severity:    core.SeverityInfo,
+			Title:       "Findings suppressed by rate limit",
+			Description: fmt.Sprintf("rule %s: %d additional findings suppressed", rule, state.heldBack),
+		})
+
+		delete(e.rates, rule)
+		e.limited--
 	}
 
 	return findings
@@ -668,7 +862,9 @@ func (b byKey) Swap(i, j int) {
 }
 
 // SetPatterns replaces the engine's pattern set and clears the suppression
-// cache so newly added or edited patterns can fire immediately.
+// cache and rate-limit counters so newly added or edited patterns can fire
+// immediately. A pattern that does not validate is kept but never matches;
+// use BehaviorPattern.Validate to find out why.
 func (e *Engine) SetPatterns(patterns []BehaviorPattern) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -676,16 +872,60 @@ func (e *Engine) SetPatterns(patterns []BehaviorPattern) {
 	e.patterns = compilePatterns(patterns)
 	e.emitted = make(map[string]time.Time)
 	e.suppressed = nil
+	e.rates = make(map[string]*rateState)
+	e.limited = 0
 	e.rescan = true
 }
 
 func compilePatterns(patterns []BehaviorPattern) []*compiledPattern {
 	compiled := make([]*compiledPattern, len(patterns))
 	for i, pattern := range patterns {
-		compiled[i] = compilePattern(pattern)
+		// An invalid pattern compiles to one that never matches.
+		compiled[i], _ = compilePattern(pattern)
 	}
 
 	return compiled
+}
+
+// SetExclusions replaces the exclusions applied to findings. Exclusions that
+// do not validate are left out, and the first such error is returned; the
+// valid ones take effect regardless.
+func (e *Engine) SetExclusions(exclusions []Exclusion) error {
+	var firstErr error
+
+	compiled := make([]compiledExclusion, 0, len(exclusions))
+	for i, exclusion := range exclusions {
+		if err := exclusion.Validate(); err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("exclusions[%d]: %w", i, err)
+			}
+			continue
+		}
+
+		matches, _ := compileProcessMatch(exclusion.Match, "match")
+		compiled = append(compiled, compiledExclusion{Exclusion: exclusion, matches: matches})
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.exclusions = compiled
+
+	return firstErr
+}
+
+// ExcludedFindings returns, for each rule, how many findings exclusions have
+// dropped since the engine started.
+func (e *Engine) ExcludedFindings() map[string]int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	counts := make(map[string]int, len(e.excluded))
+	for rule, count := range e.excluded {
+		counts[rule] = count
+	}
+
+	return counts
 }
 
 // engineWorld presents the engine's state to the matcher as of one
@@ -706,13 +946,13 @@ func (w engineWorld) visible(identity core.ProcessIdentity) (*record, bool) {
 	return known, true
 }
 
-func (w engineWorld) process(identity core.ProcessIdentity) (core.Process, bool) {
+func (w engineWorld) process(identity core.ProcessIdentity) (*core.Process, bool) {
 	known, ok := w.visible(identity)
 	if !ok {
-		return core.Process{}, false
+		return nil, false
 	}
 
-	return known.process, true
+	return &known.process, true
 }
 
 func (w engineWorld) parentOf(child core.ProcessIdentity) (core.ProcessIdentity, bool) {

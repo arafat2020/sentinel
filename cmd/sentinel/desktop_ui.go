@@ -161,6 +161,11 @@ type DesktopUI struct {
 	patternSevSelect *widget.Select
 	patternTitleE    *widget.Entry
 	patternDescE     *widget.Entry
+	// patternAdvancedL marks a pattern using schema the form cannot edit;
+	// patternProblemsL lists patterns that are not active and why.
+	patternAdvancedL *widget.Label
+	patternProblemsL *widget.Label
+	patternLoadErrs  []config.PatternError
 
 	stopOnce sync.Once
 }
@@ -186,6 +191,51 @@ func NewDesktopUI() *DesktopUI {
 
 // SetStore attaches the SQLite event store.
 func (u *DesktopUI) SetStore(s *store.Store) { u.store = s }
+
+// SetPatternErrors gives the UI the entries of the patterns file that could
+// not be loaded. Call before Run.
+func (u *DesktopUI) SetPatternErrors(errs []config.PatternError) {
+	u.patternsMu.Lock()
+	u.patternLoadErrs = errs
+	u.patternsMu.Unlock()
+}
+
+// applyPatternEdit writes the form's fields into the pattern at idx. It
+// changes only what the form shows; everything else about the pattern,
+// including the parts of the schema the form cannot edit, is left as it is.
+func (u *DesktopUI) applyPatternEdit(idx int, name, title, description string, severity core.Severity) {
+	u.patternsMu.Lock()
+	defer u.patternsMu.Unlock()
+
+	if idx < 0 || idx >= len(u.patterns) {
+		return
+	}
+
+	u.patterns[idx].Name = name
+	u.patterns[idx].Title = title
+	u.patterns[idx].Description = description
+	u.patterns[idx].Severity = severity
+}
+
+// refreshPatternProblems updates the list of patterns that are not active.
+func (u *DesktopUI) refreshPatternProblems() {
+	if u.patternProblemsL == nil {
+		return
+	}
+
+	u.patternsMu.Lock()
+	problems := patternProblems(u.patternLoadErrs, u.patterns)
+	u.patternsMu.Unlock()
+
+	if len(problems) == 0 {
+		u.patternProblemsL.SetText("")
+		u.patternProblemsL.Hide()
+		return
+	}
+
+	u.patternProblemsL.SetText("Not active — fix in the YAML file:\n• " + strings.Join(problems, "\n• "))
+	u.patternProblemsL.Show()
+}
 
 // SetPatterns injects pattern data and the on-save callback.
 func (u *DesktopUI) SetPatterns(
@@ -602,14 +652,13 @@ func (u *DesktopUI) buildPatternsTab() fyne.CanvasObject {
 		if idx < 0 {
 			return
 		}
-		u.patternsMu.Lock()
-		if idx < len(u.patterns) {
-			u.patterns[idx].Name = strings.TrimSpace(u.patternNameE.Text)
-			u.patterns[idx].Title = strings.TrimSpace(u.patternTitleE.Text)
-			u.patterns[idx].Description = strings.TrimSpace(u.patternDescE.Text)
-			u.patterns[idx].Severity = core.Severity(u.patternSevSelect.Selected)
-		}
-		u.patternsMu.Unlock()
+		u.applyPatternEdit(
+			idx,
+			strings.TrimSpace(u.patternNameE.Text),
+			strings.TrimSpace(u.patternTitleE.Text),
+			strings.TrimSpace(u.patternDescE.Text),
+			core.Severity(u.patternSevSelect.Selected),
+		)
 		u.patternListW.Refresh()
 		u.commitPatterns()
 		dialog.ShowInformation("Saved", "Pattern saved successfully.", u.win)
@@ -621,6 +670,15 @@ func (u *DesktopUI) buildPatternsTab() fyne.CanvasObject {
 
 	placeholder := widget.NewLabel("← Select a pattern or press + New")
 	placeholder.Alignment = fyne.TextAlignCenter
+
+	u.patternAdvancedL = widget.NewLabel("")
+	u.patternAdvancedL.Wrapping = fyne.TextWrapWord
+	u.patternAdvancedL.Hide()
+
+	u.patternProblemsL = widget.NewLabel("")
+	u.patternProblemsL.Wrapping = fyne.TextWrapWord
+	u.patternProblemsL.Importance = widget.DangerImportance
+	u.refreshPatternProblems()
 
 	form := widget.NewForm(
 		widget.NewFormItem("Name", u.patternNameE),
@@ -635,6 +693,8 @@ func (u *DesktopUI) buildPatternsTab() fyne.CanvasObject {
 		nil, nil,
 		container.NewScroll(container.NewVBox(
 			container.NewPadded(form),
+			container.NewPadded(u.patternAdvancedL),
+			container.NewPadded(u.patternProblemsL),
 			container.NewCenter(placeholder),
 		)),
 	)
@@ -661,9 +721,19 @@ func (u *DesktopUI) loadPatternIntoForm(idx int) {
 		sev = "MEDIUM"
 	}
 	u.patternSevSelect.SetSelected(sev)
+
+	if p.UsesAdvancedFields() {
+		u.patternAdvancedL.SetText("⚙ " + advancedFieldsNote + " (kept unchanged when you save)")
+		u.patternAdvancedL.Show()
+	} else {
+		u.patternAdvancedL.Hide()
+	}
 }
 
 func (u *DesktopUI) clearPatternForm() {
+	if u.patternAdvancedL != nil {
+		u.patternAdvancedL.Hide()
+	}
 	u.patternNameE.SetText("")
 	u.patternTitleE.SetText("")
 	u.patternDescE.SetText("")
@@ -685,6 +755,7 @@ func (u *DesktopUI) commitPatterns() {
 	if onSave != nil {
 		onSave(patterns)
 	}
+	u.refreshPatternProblems()
 }
 
 // ── Query tab ─────────────────────────────────────────────────────────────────

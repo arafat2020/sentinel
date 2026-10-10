@@ -29,6 +29,9 @@ type BehaviorPattern struct {
 	// window; further ones are counted and summarised. Zero means
 	// DefaultMaxFindingsPerWindow.
 	MaxFindingsPerWindow int
+	// Sequence, when set, also requires events to have happened in order
+	// on the processes bound to the roles.
+	Sequence *SequencePattern
 }
 
 // RoleExclusion bars any process matching Match from filling Role.
@@ -72,7 +75,7 @@ func (x Exclusion) Validate() error {
 // UsesAdvancedFields reports whether the pattern uses anything beyond the
 // original schema of exact-match conditions and bare event types.
 func (p BehaviorPattern) UsesAdvancedFields() bool {
-	if len(p.Exclude) > 0 || p.MaxFindingsPerWindow != 0 {
+	if len(p.Exclude) > 0 || p.MaxFindingsPerWindow != 0 || p.Sequence != nil {
 		return true
 	}
 	for _, relationship := range p.Relationships {

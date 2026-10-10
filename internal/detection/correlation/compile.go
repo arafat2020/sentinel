@@ -24,6 +24,8 @@ type compiledPattern struct {
 	// deep is true when a relationship spans more than one generation, so a
 	// change anywhere in a process's ancestry can affect a match.
 	deep bool
+	// sequence is the ordered-events constraint, or nil.
+	sequence *compiledSequence
 }
 
 type roleLink struct {
@@ -166,6 +168,14 @@ func compilePattern(pattern BehaviorPattern, window time.Duration) (*compiledPat
 			compiled.deep = true
 		}
 		compiled.relationships = append(compiled.relationships, link)
+	}
+
+	if pattern.Sequence != nil {
+		sequence, err := compileSequence(pattern.Sequence, indexes, window)
+		if err != nil {
+			return compiled, fmt.Errorf("sequence: %w", err)
+		}
+		compiled.sequence = sequence
 	}
 
 	compiled.roles = roles

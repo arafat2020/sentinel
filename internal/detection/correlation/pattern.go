@@ -6,6 +6,10 @@ import (
 	"github.com/arafat2020/sentinel/internal/core"
 )
 
+// DefaultMaxFindingsPerWindow is how many findings a rule may produce in one
+// window when the pattern does not set its own limit.
+const DefaultMaxFindingsPerWindow = 20
+
 type BehaviorPattern struct {
 	Name          string
 	Severity      core.Severity
@@ -13,17 +17,82 @@ type BehaviorPattern struct {
 	Description   string
 	Processes     []ProcessPattern
 	Relationships []RelationshipPattern
+	// Exclude lists processes that may not fill particular roles.
+	Exclude []RoleExclusion
+	// MaxFindingsPerWindow caps the findings this rule produces in one
+	// window; further ones are counted and summarised. Zero means
+	// DefaultMaxFindingsPerWindow.
+	MaxFindingsPerWindow int
 }
 
-// Validate reports whether the pattern is structurally sound: whether its
-// roles and relationships describe something that can be matched without
-// ambiguity. It does not check that the pattern is useful.
+// RoleExclusion bars any process matching Match from filling Role.
+type RoleExclusion struct {
+	Role  string
+	Match *MatchBlock
+}
+
+// Exclusion drops findings: a finding of one of the named rules is discarded
+// if any of the processes bound to it matches Match.
+type Exclusion struct {
+	// Rules names the rules the exclusion applies to; "*" means every rule.
+	Rules       []string
+	Match       *MatchBlock
+	Description string
+}
+
+// AppliesTo reports whether the exclusion covers the named rule.
+func (x Exclusion) AppliesTo(rule string) bool {
+	for _, name := range x.Rules {
+		if name == "*" || name == rule {
+			return true
+		}
+	}
+	return false
+}
+
+// Validate reports whether the exclusion can be applied.
+func (x Exclusion) Validate() error {
+	if len(x.Rules) == 0 {
+		return fmt.Errorf(`rules: list the rules it applies to, or "*" for all`)
+	}
+	if x.Match.IsEmpty() {
+		return fmt.Errorf("match: an exclusion must say which processes it excludes")
+	}
+
+	_, err := compileProcessMatch(x.Match, "match")
+	return err
+}
+
+// UsesAdvancedFields reports whether the pattern uses anything beyond the
+// original schema of exact-match conditions and bare event types.
+func (p BehaviorPattern) UsesAdvancedFields() bool {
+	if len(p.Exclude) > 0 || p.MaxFindingsPerWindow != 0 {
+		return true
+	}
+	for _, role := range p.Processes {
+		if role.UsesAdvancedFields() {
+			return true
+		}
+	}
+	return false
+}
+
+// Validate reports whether the pattern can be used: whether its roles and
+// relationships describe something that can be matched without ambiguity,
+// and whether every predicate in it compiles. It does not check that the
+// pattern is useful. Errors name the role and field at fault.
 //
 // A pattern with a single role and no relationships is valid and matches one
 // process. With two or more roles, every role must take part in at least one
 // relationship; otherwise the roles would be unrelated and any combination
-// of processes would do.
+// of processes would do. A pattern with no roles is valid, and never matches.
 func (p BehaviorPattern) Validate() error {
+	_, err := compilePattern(p)
+	return err
+}
+
+// validateStructure checks the roles and relationships of a pattern.
+func (p BehaviorPattern) validateStructure() error {
 	roles := make(map[string]bool, len(p.Processes))
 	for _, process := range p.Processes {
 		if roles[process.ID] {
@@ -45,6 +114,16 @@ func (p BehaviorPattern) Validate() error {
 		}
 	}
 
+	for i, exclusion := range p.Exclude {
+		if !roles[exclusion.Role] {
+			return fmt.Errorf("exclude[%d]: unknown role %q", i, exclusion.Role)
+		}
+	}
+
+	if p.MaxFindingsPerWindow < 0 {
+		return fmt.Errorf("max_findings_per_window: must not be negative, got %d", p.MaxFindingsPerWindow)
+	}
+
 	if len(p.Processes) < 2 {
 		return nil
 	}
@@ -63,13 +142,35 @@ func (p BehaviorPattern) Validate() error {
 }
 
 type ProcessPattern struct {
-	ID         string
+	ID string
+	// Conditions are the original exact-match conditions. They are still
+	// honoured; each is equivalent to an eq predicate in Match.
 	Conditions []Condition
-	Events     []EventPattern
+	// Match holds field predicates on the process. Conditions and Match
+	// must both hold.
+	Match  *MatchBlock
+	Events []EventPattern
 }
 
+// UsesAdvancedFields reports whether the role uses a match block or event
+// filters, which the pattern editors display but cannot edit.
+func (p ProcessPattern) UsesAdvancedFields() bool {
+	if p.Match != nil {
+		return true
+	}
+	for _, event := range p.Events {
+		if event.Where != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// EventPattern requires at least one in-window event of Type that satisfies
+// Where. A nil Where accepts any event of the type.
 type EventPattern struct {
-	Type core.EventType
+	Type  core.EventType
+	Where *MatchBlock
 }
 
 type RelationshipPattern struct {
@@ -109,10 +210,13 @@ func DefaultPatterns() []BehaviorPattern {
 				},
 				{
 					ID: "child",
-					Conditions: []Condition{
-						{
-							Type:  ConditionProcessName,
-							Value: "python",
+					// python, python3, python3.12, ...
+					Match: &MatchBlock{
+						Fields: []FieldPredicate{
+							{
+								Field:     "name",
+								Predicate: Predicate{Regex: stringPtr(`^python[0-9.]*$`)},
+							},
 						},
 					},
 					Events: []EventPattern{
@@ -133,3 +237,5 @@ func DefaultPatterns() []BehaviorPattern {
 		},
 	}
 }
+
+func stringPtr(s string) *string { return &s }

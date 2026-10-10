@@ -21,45 +21,33 @@ type Match struct {
 	Processes []core.Process
 }
 
+// MatchProcess reports whether the process meets the role's conditions and
+// match block. A role that does not compile matches nothing.
 func (m *Matcher) MatchProcess(
 	pattern ProcessPattern,
 	process core.Process,
 ) bool {
-	for _, condition := range pattern.Conditions {
-		if !matchCondition(condition, process) {
-			return false
-		}
-	}
-
-	return true
-}
-
-func matchCondition(
-	condition Condition,
-	process core.Process,
-) bool {
-	switch condition.Type {
-	case ConditionProcessName:
-		return process.Name == condition.Value
-	case ConditionProcessUser:
-		return process.User == condition.Value
-
-	default:
+	role, err := compileRole(pattern)
+	if err != nil {
 		return false
 	}
+
+	return role.suitsProcess(&process)
 }
 
-// MatchEvents reports whether the chain contains every event type the
-// pattern requires, considering every event in the chain regardless of age.
+// MatchEvents reports whether the chain contains, for each event the pattern
+// requires, an event of that type passing its filter. Events of any age
+// count.
 func (m *Matcher) MatchEvents(
 	pattern ProcessPattern,
 	chain *Chain,
 ) bool {
-	if chain == nil {
+	role, err := compileRole(pattern)
+	if err != nil || chain == nil {
 		return false
 	}
 
-	return matchEvents(pattern, chain.Events())
+	return role.satisfiedBy(chain.Events())
 }
 
 // MatchEventsAfter is MatchEvents restricted to events whose timestamp is
@@ -69,30 +57,12 @@ func (m *Matcher) MatchEventsAfter(
 	chain *Chain,
 	cutoff time.Time,
 ) bool {
-	if chain == nil {
+	role, err := compileRole(pattern)
+	if err != nil || chain == nil {
 		return false
 	}
 
-	return matchEvents(pattern, chain.EventsAfter(cutoff))
-}
-
-func matchEvents(pattern ProcessPattern, events []core.Event) bool {
-	for _, required := range pattern.Events {
-		found := false
-
-		for _, event := range events {
-			if event.Type == required.Type {
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			return false
-		}
-	}
-
-	return true
+	return role.satisfiedBy(chain.EventsAfter(cutoff))
 }
 
 func (m *Matcher) MatchRelationship(
@@ -135,7 +105,9 @@ func (m *Matcher) FindMatches(
 	relationships []ProcessRelationship,
 	chains map[core.ProcessIdentity][]*Chain,
 ) []Match {
-	return m.find(compilePattern(pattern), newSliceWorld(relationships, chains), m.MatchEvents, nil)
+	compiled, _ := compilePattern(pattern)
+
+	return m.find(compiled, newSliceWorld(relationships, chains), (*Chain).Events, nil)
 }
 
 // FindMatchesAfter is FindMatches restricted to events whose timestamp is
@@ -146,12 +118,12 @@ func (m *Matcher) FindMatchesAfter(
 	chains map[core.ProcessIdentity][]*Chain,
 	cutoff time.Time,
 ) []Match {
+	compiled, _ := compilePattern(pattern)
+
 	return m.find(
-		compilePattern(pattern),
+		compiled,
 		newSliceWorld(relationships, chains),
-		func(p ProcessPattern, chain *Chain) bool {
-			return m.MatchEventsAfter(p, chain, cutoff)
-		},
+		func(chain *Chain) []core.Event { return chain.EventsAfter(cutoff) },
 		nil,
 	)
 }
@@ -163,23 +135,30 @@ func (m *Matcher) MatchAnyChain(
 	pattern ProcessPattern,
 	chains []*Chain,
 ) bool {
-	return matchAnyChain(pattern, chains, m.MatchEvents)
+	role, err := compileRole(pattern)
+	if err != nil {
+		return false
+	}
+
+	return anyChainSatisfies(role, chains, (*Chain).Events)
 }
 
-func matchAnyChain(
-	pattern ProcessPattern,
+// anyChainSatisfies reports whether the events that window selects from some
+// one chain meet the role's event requirements.
+func anyChainSatisfies(
+	role *compiledRole,
 	chains []*Chain,
-	matchEvents func(ProcessPattern, *Chain) bool,
+	window func(*Chain) []core.Event,
 ) bool {
 	// Nothing is required, so there is nothing a chain could fail to
 	// provide. Without this a process would stop matching as soon as its
 	// last event aged out of the window.
-	if len(pattern.Events) == 0 {
+	if len(role.events) == 0 {
 		return true
 	}
 
 	for _, chain := range chains {
-		if matchEvents(pattern, chain) {
+		if role.satisfiedBy(window(chain)) {
 			return true
 		}
 	}
@@ -190,7 +169,8 @@ func matchAnyChain(
 // world is what a pattern is matched against: the known processes, how they
 // are related, and what they have done.
 type world interface {
-	process(core.ProcessIdentity) (core.Process, bool)
+	// process returns a process that must not be modified.
+	process(core.ProcessIdentity) (*core.Process, bool)
 	parentOf(child core.ProcessIdentity) (core.ProcessIdentity, bool)
 	// The each* methods stop when visit returns false.
 	eachChild(parent core.ProcessIdentity, visit func(core.ProcessIdentity) bool)
@@ -199,55 +179,19 @@ type world interface {
 	chainsOf(core.ProcessIdentity) []*Chain
 }
 
-// compiledPattern is a pattern with its structure resolved once, so that
-// evaluating it does not repeat validation and role lookups.
-type compiledPattern struct {
-	BehaviorPattern
-	// matchable is false for a pattern that is structurally invalid or has
-	// no roles; such a pattern never matches.
-	matchable bool
-	// relationships holds, for each relationship pattern, the indexes of
-	// its parent and child roles in Processes.
-	relationships []roleLink
-}
-
-type roleLink struct {
-	parent, child int
-}
-
-func compilePattern(pattern BehaviorPattern) *compiledPattern {
-	compiled := &compiledPattern{BehaviorPattern: pattern}
-
-	if len(pattern.Processes) == 0 || pattern.Validate() != nil {
-		return compiled
-	}
-
-	roles := make(map[string]int, len(pattern.Processes))
-	for i, role := range pattern.Processes {
-		roles[role.ID] = i
-	}
-
-	for _, relationship := range pattern.Relationships {
-		compiled.relationships = append(compiled.relationships, roleLink{
-			parent: roles[relationship.Parent],
-			child:  roles[relationship.Child],
-		})
-	}
-	compiled.matchable = true
-
-	return compiled
-}
-
 // find searches w for ways of binding the pattern's roles.
 //
 // With seeds nil it returns every match. With seeds given it returns only
 // the matches that include at least one seed process, which is all that can
 // have become true when only those processes have changed. A match that
 // includes several seeds may be returned more than once.
+//
+// window selects the events of a chain that count: all of them, or those
+// inside the correlation window.
 func (m *Matcher) find(
 	pattern *compiledPattern,
 	w world,
-	matchEvents func(ProcessPattern, *Chain) bool,
+	window func(*Chain) []core.Event,
 	seeds []core.ProcessIdentity,
 ) []Match {
 	if !pattern.matchable {
@@ -255,13 +199,12 @@ func (m *Matcher) find(
 	}
 
 	s := &search{
-		matcher:     m,
-		pattern:     pattern,
-		world:       w,
-		matchEvents: matchEvents,
-		bound:       make([]core.ProcessIdentity, len(pattern.Processes)),
-		isBound:     make([]bool, len(pattern.Processes)),
-		done:        make([]bool, len(pattern.relationships)),
+		pattern: pattern,
+		world:   w,
+		window:  window,
+		bound:   make([]core.ProcessIdentity, len(pattern.Processes)),
+		isBound: make([]bool, len(pattern.Processes)),
+		done:    make([]bool, len(pattern.relationships)),
 	}
 
 	if seeds == nil {
@@ -278,10 +221,9 @@ func (m *Matcher) find(
 // bound when there is one, so candidates come from a bound process's parent
 // or children rather than from every known process.
 type search struct {
-	matcher     *Matcher
-	pattern     *compiledPattern
-	world       world
-	matchEvents func(ProcessPattern, *Chain) bool
+	pattern *compiledPattern
+	world   world
+	window  func(*Chain) []core.Event
 
 	bound   []core.ProcessIdentity
 	isBound []bool
@@ -408,19 +350,19 @@ func (s *search) unbind(role int) {
 	s.isBound[role] = false
 }
 
-// suits reports whether the process meets the role's conditions and event
-// requirements. Conditions are checked first: they are cheap and usually
-// rule a process out before its events need to be examined.
+// suits reports whether the process may fill the role and has produced the
+// events the role requires. The process itself is checked first: that is
+// cheap and usually rules a candidate out before its events are examined.
 func (s *search) suits(role int, identity core.ProcessIdentity) bool {
 	process, ok := s.world.process(identity)
 	if !ok {
 		return false
 	}
 
-	pattern := s.pattern.Processes[role]
+	compiled := &s.pattern.roles[role]
 
-	return s.matcher.MatchProcess(pattern, process) &&
-		matchAnyChain(pattern, s.world.chainsOf(identity), s.matchEvents)
+	return compiled.suitsProcess(process) &&
+		anyChainSatisfies(compiled, s.world.chainsOf(identity), s.window)
 }
 
 // emit records the current bindings as a match.
@@ -432,7 +374,7 @@ func (s *search) emit() {
 		if !s.isBound[i] || !ok {
 			return
 		}
-		processes[i] = process
+		processes[i] = *process
 	}
 
 	s.matches = append(s.matches, Match{Processes: processes})
@@ -441,7 +383,7 @@ func (s *search) emit() {
 // sliceWorld is a world built from a list of relationships, for callers that
 // hold one rather than an Engine.
 type sliceWorld struct {
-	processes map[core.ProcessIdentity]core.Process
+	processes map[core.ProcessIdentity]*core.Process
 	topology  *topology
 	chains    map[core.ProcessIdentity][]*Chain
 }
@@ -451,7 +393,7 @@ func newSliceWorld(
 	chains map[core.ProcessIdentity][]*Chain,
 ) *sliceWorld {
 	w := &sliceWorld{
-		processes: make(map[core.ProcessIdentity]core.Process),
+		processes: make(map[core.ProcessIdentity]*core.Process),
 		topology:  newTopology(),
 		chains:    chains,
 	}
@@ -461,16 +403,17 @@ func newSliceWorld(
 			continue
 		}
 
+		relationship := relationship
 		parent, child := relationship.Parent.Identity(), relationship.Child.Identity()
-		w.processes[parent] = relationship.Parent
-		w.processes[child] = relationship.Child
+		w.processes[parent] = &relationship.Parent
+		w.processes[child] = &relationship.Child
 		w.topology.link(parent, child)
 	}
 
 	return w
 }
 
-func (w *sliceWorld) process(identity core.ProcessIdentity) (core.Process, bool) {
+func (w *sliceWorld) process(identity core.ProcessIdentity) (*core.Process, bool) {
 	process, ok := w.processes[identity]
 	return process, ok
 }

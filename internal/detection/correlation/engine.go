@@ -83,6 +83,11 @@ type Engine struct {
 	// per-rule limit. limited is how many rules have findings held back.
 	rates   map[string]*rateState
 	limited int
+
+	// deep is true when some pattern has a relationship spanning more than
+	// one generation.
+	deep    bool
+	metrics Metrics
 }
 
 // suppression is one emitted finding that must not be repeated yet.
@@ -105,6 +110,16 @@ type rateState struct {
 	// heldBack counts findings not emitted because the rule was over its
 	// limit; it is reported once when the window rolls over.
 	heldBack int
+}
+
+// Metrics counts the occasions on which the engine hit one of its limits.
+// Each is a place where a match could have been missed; none of them stops
+// the engine working.
+type Metrics struct {
+	// DescendantWalksTruncated counts walks down the process tree for a
+	// DESCENDANT relationship that stopped at maxDescendantVisits processes
+	// without having visited every descendant.
+	DescendantWalksTruncated uint64
 }
 
 // Option configures an Engine.
@@ -270,6 +285,35 @@ func (e *Engine) observe(process core.Process, now time.Time) *record {
 	return added
 }
 
+// maxSubtreeTouch is the largest subtree that is marked process by process
+// when it gains an ancestor. Beyond it, everything is re-evaluated once
+// instead.
+const maxSubtreeTouch = 256
+
+// relinked records that an already-known process has a new parent. With only
+// direct relationships that concerns the process and the parent, and the
+// parent is marked as changed by whoever linked it. With relationships that
+// span generations it also concerns everything below the process, which now
+// has new ancestors although nothing about it changed.
+func (e *Engine) relinked(child core.ProcessIdentity) {
+	e.touch(child)
+
+	if !e.deep || e.rescan {
+		return
+	}
+
+	marked := 0
+	walkDescendants(e.tree, child, MaxDepthLimit, func(identity core.ProcessIdentity) bool {
+		if marked >= maxSubtreeTouch {
+			e.rescan = true
+			return false
+		}
+		marked++
+		e.touch(identity)
+		return true
+	})
+}
+
 // touch marks a process as changed since the last evaluation.
 func (e *Engine) touch(identity core.ProcessIdentity) {
 	for _, already := range e.touched {
@@ -358,6 +402,7 @@ func (e *Engine) reattributeChildren(previous, current *record) {
 
 	for _, childID := range moved {
 		e.tree.link(current.process.Identity(), childID)
+		e.relinked(childID)
 	}
 }
 
@@ -374,6 +419,7 @@ func (e *Engine) inheritChildren(previous, current *record) {
 
 	for _, childID := range moved {
 		e.tree.link(current.process.Identity(), childID)
+		e.relinked(childID)
 	}
 }
 
@@ -417,6 +463,7 @@ func (e *Engine) adoptOrphans(parent *record) {
 		}
 
 		e.tree.link(parent.process.Identity(), childID)
+		e.relinked(childID)
 		delete(waiting, childID)
 	}
 
@@ -870,6 +917,10 @@ func (e *Engine) SetPatterns(patterns []BehaviorPattern) {
 	defer e.mu.Unlock()
 
 	e.patterns = compilePatterns(patterns)
+	e.deep = false
+	for _, pattern := range e.patterns {
+		e.deep = e.deep || pattern.deep
+	}
 	e.emitted = make(map[string]time.Time)
 	e.suppressed = nil
 	e.rates = make(map[string]*rateState)
@@ -912,6 +963,14 @@ func (e *Engine) SetExclusions(exclusions []Exclusion) error {
 	e.exclusions = compiled
 
 	return firstErr
+}
+
+// Metrics returns the engine's limit counters.
+func (e *Engine) Metrics() Metrics {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	return e.metrics
 }
 
 // ExcludedFindings returns, for each rule, how many findings exclusions have
@@ -972,6 +1031,12 @@ func (w engineWorld) eachChild(parent core.ProcessIdentity, visit func(core.Proc
 		if !visit(child) {
 			return
 		}
+	}
+}
+
+func (w engineWorld) eachDescendant(parent core.ProcessIdentity, maxDepth int, visit func(core.ProcessIdentity) bool) {
+	if walkDescendants(w.engine.tree, parent, maxDepth, visit) {
+		w.engine.metrics.DescendantWalksTruncated++
 	}
 }
 

@@ -1,0 +1,68 @@
+# Exercises every part of the v2 schema. Used by the round-trip tests.
+patterns:
+    - name: webshell-outbound
+      severity: HIGH
+      title: Web server descendant shell with unusual outbound connection
+      description: A shell under a web server connected to a non-standard port.
+      max_findings_per_window: 5
+      processes:
+        - id: server
+          match:
+            name: { in: [nginx, apache2, httpd], nocase: true }
+          events: []
+        - id: shell
+          conditions:
+            - type: PROCESS_USER
+              value: www-data
+          match:
+            name: { regex: '^(ba|da|z)?sh$' }
+            cmdline: { contains: "-c" }
+            any_of:
+              - exe: { prefix: /tmp/ }
+              - exe: { glob: "/dev/shm/**" }
+              - exe: /bin/sh
+          events:
+            - type: NETWORK_CONNECT
+              where:
+                remote_port: { not: { in: [80, 443, 53] } }
+                remote_addr: { not: { cidr: [10.0.0.0/8, 127.0.0.0/8, "::1/128"] } }
+                protocol: tcp
+            - type: DNS_QUERY
+            - type: FILE_CREATE
+              where:
+                path: [/etc/passwd, /etc/shadow]
+      relationships:
+        - type: SPAWNED
+          parent: server
+          child: shell
+      exclude:
+        - role: shell
+          match:
+            cmdline: { suffix: healthcheck.sh }
+    - name: plain-v1-pattern
+      severity: LOW
+      title: Original form
+      description: Conditions and bare events only.
+      processes:
+        - id: parent
+          conditions: []
+          events:
+            - type: NETWORK_CONNECT
+        - id: child
+          conditions:
+            - type: PROCESS_NAME
+              value: ruby
+          events: []
+      relationships:
+        - type: SPAWNED
+          parent: parent
+          child: child
+exclusions:
+    - rules: ["*"]
+      match:
+        exe: { prefix: /opt/monitoring/ }
+      description: Monitoring agent
+    - rules: [webshell-outbound]
+      match:
+        user: deploy
+        name: { not: { eq: bash } }

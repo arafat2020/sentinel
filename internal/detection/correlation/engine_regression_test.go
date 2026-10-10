@@ -975,14 +975,72 @@ func TestIncrementalEvaluationMatchesFullEvaluation(t *testing.T) {
 			Processes:     []ProcessPattern{{ID: "parent"}, {ID: "child", Events: []EventPattern{{Type: core.EventNetworkConnect}}}},
 			Relationships: []RelationshipPattern{spawned("parent", "child")},
 		},
+		// Predicates, event filters, a per-pattern exclusion and a low rate
+		// limit, so that all of them are exercised on both paths.
+		BehaviorPattern{
+			Name: "odd-port-from-non-root",
+			Processes: []ProcessPattern{
+				{ID: "parent", Match: &MatchBlock{Fields: []FieldPredicate{
+					{Field: "name", Predicate: Predicate{Regex: stringPtr("^(a|b|node)$")}},
+				}}},
+				{
+					ID: "child",
+					Match: &MatchBlock{
+						Fields: []FieldPredicate{{Field: "user", Predicate: Predicate{Not: &Predicate{Eq: stringPtr("root")}}}},
+						AnyOf: []MatchBlock{
+							{Fields: []FieldPredicate{{Field: "name", Predicate: Predicate{Prefix: stringPtr("py")}}}},
+							{Fields: []FieldPredicate{{Field: "name", Predicate: Predicate{In: []string{"c", "b"}}}}},
+						},
+					},
+					Events: []EventPattern{{
+						Type: core.EventNetworkConnect,
+						Where: &MatchBlock{Fields: []FieldPredicate{
+							{Field: "remote_port", Predicate: Predicate{Not: &Predicate{In: []string{"80", "443"}}}},
+							{Field: "remote_addr", Predicate: Predicate{Not: &Predicate{CIDR: []string{"10.0.0.0/8", "::1/128"}}}},
+						}},
+					}},
+				},
+			},
+			Relationships: []RelationshipPattern{spawned("parent", "child")},
+			Exclude: []RoleExclusion{{Role: "parent", Match: &MatchBlock{Fields: []FieldPredicate{
+				{Field: "user", Predicate: Predicate{Eq: stringPtr("svc")}},
+			}}}},
+			MaxFindingsPerWindow: 3,
+		},
+		BehaviorPattern{
+			Name: "suspicious-lookup",
+			Processes: []ProcessPattern{{ID: "p", Events: []EventPattern{{
+				Type:  core.EventDNSQuery,
+				Where: &MatchBlock{Fields: []FieldPredicate{{Field: "domain", Predicate: Predicate{Glob: stringPtr("**.top")}}}},
+			}}}},
+			MaxFindingsPerWindow: 2,
+		},
 	)
+	for _, pattern := range patterns {
+		if err := pattern.Validate(); err != nil {
+			t.Fatalf("pattern %q: %v", pattern.Name, err)
+		}
+	}
+
+	exclusions := []Exclusion{
+		{Rules: []string{"*"}, Match: &MatchBlock{Fields: []FieldPredicate{{Field: "user", Predicate: Predicate{Eq: stringPtr("trusted")}}}}},
+		{Rules: []string{"lone-dns"}, Match: &MatchBlock{Fields: []FieldPredicate{{Field: "name", Predicate: Predicate{Eq: stringPtr("c")}}, {Field: "user", Predicate: Predicate{Eq: stringPtr("app")}}}}},
+	}
 
 	incremental, full := newHarness(testWindow), newHarness(testWindow)
-	incremental.SetPatterns(patterns)
-	full.SetPatterns(patterns)
+	for _, h := range []*harness{incremental, full} {
+		h.SetPatterns(patterns)
+		if err := h.SetExclusions(exclusions); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	rng := rand.New(rand.NewSource(1))
 	names := []string{"a", "b", "c", "node", "python"}
+	users := []string{"root", "app", "svc", "trusted"}
+	addresses := []string{"10.1.1.1", "203.0.113.5", "::1", "2001:db8::5"}
+	ports := []uint32{80, 443, 4444, 8080}
+	domains := []string{"example.com", "c2.evil.top", "updates.vendor.io"}
 	eventTypes := []core.EventType{
 		core.EventProcessStart, core.EventNetworkConnect, core.EventDNSQuery,
 		core.EventNetworkConnect, core.EventProcessExit,
@@ -992,6 +1050,7 @@ func TestIncrementalEvaluationMatchesFullEvaluation(t *testing.T) {
 	// same small range, so exits, reuse and orphans all occur.
 	var live []core.Process
 	total := 0
+	sawRateLimitSummary := false
 
 	for step := 0; step < 4000; step++ {
 		ts := at(time.Duration(step) * 250 * time.Millisecond)
@@ -999,14 +1058,30 @@ func TestIncrementalEvaluationMatchesFullEvaluation(t *testing.T) {
 		var p core.Process
 		if len(live) == 0 || rng.Intn(4) == 0 {
 			p = proc(int32(1+rng.Intn(40)), int32(1+rng.Intn(40)), names[rng.Intn(len(names))], ts)
+			p.User = users[rng.Intn(len(users))]
 			live = append(live, p)
 		} else {
 			p = live[rng.Intn(len(live))]
 		}
 		eventType := eventTypes[rng.Intn(len(eventTypes))]
 
-		incremental.feed(eventType, p, ts)
-		full.feed(eventType, p, ts)
+		event := core.Event{Type: eventType, Timestamp: ts}
+		switch eventType {
+		case core.EventNetworkConnect:
+			event.Network = &core.NetworkConnection{
+				RemoteAddress: addresses[rng.Intn(len(addresses))],
+				RemotePort:    ports[rng.Intn(len(ports))],
+			}
+		case core.EventDNSQuery:
+			event.DNS = &core.DNSQuery{Domain: domains[rng.Intn(len(domains))]}
+		}
+
+		for _, h := range []*harness{incremental, full} {
+			subject := p
+			event.Process = &subject
+			h.clock.set(ts)
+			h.Process(event)
+		}
 
 		full.rescan = true
 		got, want := findingKeys(incremental.detect(ts)), findingKeys(full.detect(ts))
@@ -1017,10 +1092,31 @@ func TestIncrementalEvaluationMatchesFullEvaluation(t *testing.T) {
 		if want != "" {
 			total++
 		}
+		if strings.Contains(want, "odd-port-from-non-root:") || strings.Contains(want, "suspicious-lookup:") {
+			// A finding with no evidence is a rate-limit summary.
+			for _, key := range strings.Fields(want) {
+				if strings.HasSuffix(key, ":") {
+					sawRateLimitSummary = true
+				}
+			}
+		}
 	}
 
 	if total < 50 {
 		t.Fatalf("only %d steps produced findings; the comparison is not exercising much", total)
+	}
+
+	// Exclusions and the rate limit must have come into play, and counted
+	// the same on both paths.
+	got, want := incremental.ExcludedFindings(), full.ExcludedFindings()
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("excluded counts differ: incremental %v, full %v", got, want)
+	}
+	if len(want) == 0 {
+		t.Fatal("no finding was excluded; the comparison is not exercising exclusions")
+	}
+	if !sawRateLimitSummary {
+		t.Fatal("no rate-limit summary was emitted; the comparison is not exercising the rate limit")
 	}
 }
 

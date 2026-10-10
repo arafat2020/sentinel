@@ -9,8 +9,9 @@ patterns:
           events:
             - type: NETWORK_CONNECT
         - id: child
-          match:
-            name: {regex: '^python[0-9.]*$'}
+          conditions:
+            - type: PROCESS_NAME
+              value: python
           events:
             - type: NETWORK_CONNECT
       relationships:

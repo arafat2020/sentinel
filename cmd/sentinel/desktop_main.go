@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/arafat2020/sentinel/internal/config"
 	"github.com/arafat2020/sentinel/internal/core"
 	"github.com/arafat2020/sentinel/internal/detection/correlation"
 	"github.com/arafat2020/sentinel/internal/eventbus"
@@ -41,7 +42,7 @@ func checkDisplayAvailable() error {
 // It mirrors the TUI setup in main() but uses DesktopUI instead of tview.
 func runDesktopMode(
 	ctx context.Context,
-	initialPatterns []correlation.BehaviorPattern,
+	patterns config.PatternSet,
 	patternsPath string,
 	eventStore *store.Store,
 ) {
@@ -51,11 +52,13 @@ func runDesktopMode(
 	}
 
 	corrEngine := correlation.NewEngine(5 * time.Minute)
-	corrEngine.SetPatterns(initialPatterns)
+	corrEngine.SetPatterns(patterns.Patterns)
+	_ = corrEngine.SetExclusions(patterns.Exclusions)
 
 	dui := NewDesktopUI()
 	dui.SetStore(eventStore)
-	dui.SetPatterns(patternsPath, initialPatterns, func(updated []correlation.BehaviorPattern) {
+	dui.SetPatternErrors(patterns.Errors)
+	dui.SetPatterns(patternsPath, patterns.Patterns, func(updated []correlation.BehaviorPattern) {
 		corrEngine.SetPatterns(updated)
 	})
 

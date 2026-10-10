@@ -219,26 +219,37 @@ func TestDocumentedExamplesBehaveAsDescribed(t *testing.T) {
 		}},
 
 		// 4. download-and-execute
-		{"download-and-execute", "connect, create /tmp/payload, child runs /tmp/payload", 1, func(s *scenario) {
-			dropper, payload := process(50, 1, "sh", "/bin/sh"), process(60, 50, "payload", "/tmp/payload")
-			s.started(0, dropper)
-			s.connected(time.Second, dropper, "203.0.113.9", 443)
-			s.created(2*time.Second, dropper, "/tmp/payload")
+		{"download-and-execute", "sh runs curl, which connects and creates /tmp/payload; sh then runs /tmp/payload", 1, func(s *scenario) {
+			shell, curl, payload := process(50, 1, "sh", "/bin/sh"), process(55, 50, "curl", "/usr/bin/curl"), process(60, 50, "payload", "/tmp/payload")
+			s.started(0, shell)
+			s.started(500*time.Millisecond, curl)
+			s.connected(time.Second, curl, "203.0.113.9", 443)
+			s.created(2*time.Second, curl, "/tmp/payload")
 			s.started(3*time.Second, payload)
 		}},
-		{"download-and-execute", "the child runs something other than the file created", 0, func(s *scenario) {
-			dropper, payload := process(50, 1, "sh", "/bin/sh"), process(60, 50, "id", "/usr/bin/id")
-			s.started(0, dropper)
-			s.connected(time.Second, dropper, "203.0.113.9", 443)
-			s.created(2*time.Second, dropper, "/tmp/payload")
-			s.started(3*time.Second, payload)
+		{"download-and-execute", "the shell then runs something other than the file created", 0, func(s *scenario) {
+			shell, curl, other := process(50, 1, "sh", "/bin/sh"), process(55, 50, "curl", "/usr/bin/curl"), process(60, 50, "id", "/usr/bin/id")
+			s.started(0, shell)
+			s.started(500*time.Millisecond, curl)
+			s.connected(time.Second, curl, "203.0.113.9", 443)
+			s.created(2*time.Second, curl, "/tmp/payload")
+			s.started(3*time.Second, other)
 		}},
 		{"download-and-execute", "the file is created long before the connection", 0, func(s *scenario) {
-			dropper, payload := process(50, 1, "sh", "/bin/sh"), process(60, 50, "payload", "/tmp/payload")
-			s.started(0, dropper)
-			s.created(time.Second, dropper, "/tmp/payload")
-			s.connected(20*time.Second, dropper, "203.0.113.9", 443)
+			shell, curl, payload := process(50, 1, "sh", "/bin/sh"), process(55, 50, "curl", "/usr/bin/curl"), process(60, 50, "payload", "/tmp/payload")
+			s.started(0, shell)
+			s.started(500*time.Millisecond, curl)
+			s.created(time.Second, curl, "/tmp/payload")
+			s.connected(20*time.Second, curl, "203.0.113.9", 443)
 			s.started(21*time.Second, payload)
+		}},
+		{"download-and-execute", "the file is run by an unrelated process, not the one that started the download", 0, func(s *scenario) {
+			shell, curl, payload := process(50, 1, "sh", "/bin/sh"), process(55, 50, "curl", "/usr/bin/curl"), process(60, 1, "payload", "/tmp/payload")
+			s.started(0, shell)
+			s.started(500*time.Millisecond, curl)
+			s.connected(time.Second, curl, "203.0.113.9", 443)
+			s.created(2*time.Second, curl, "/tmp/payload")
+			s.started(3*time.Second, payload)
 		}},
 
 		// 5. webshell-outbound-any-depth

@@ -4,6 +4,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/http"
+	_ "net/http/pprof" // registers on the default mux, served only with --pprof-addr
 	"os"
 	"os/signal"
 	"syscall"
@@ -39,7 +41,16 @@ func main() {
 	queryUntil := flag.String("until", "", "end date/time (default: now)")
 	queryLimit := flag.Int("limit", 200, "maximum rows to return")
 	collectors := registerCollectorFlags()
+	pprofAddr := flag.String("pprof-addr", "", "serve Go profiling data (net/http/pprof) on this address, e.g. 127.0.0.1:6060; off by default")
 	flag.Parse()
+
+	if *pprofAddr != "" {
+		go func() {
+			if err := http.ListenAndServe(*pprofAddr, nil); err != nil {
+				fmt.Fprintf(os.Stderr, "sentinel: pprof: %v\n", err)
+			}
+		}()
+	}
 
 	if *queryMode {
 		runQuery(*queryTab, *querySince, *queryUntil, *queryLimit)

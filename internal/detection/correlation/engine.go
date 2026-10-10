@@ -78,6 +78,12 @@ type Engine struct {
 	rescan bool
 	// emitted maps a finding's dedup key to when it was last emitted.
 	emitted map[string]time.Time
+	// pendingSince is the timestamp of the oldest event taken in since the
+	// last evaluation; zero when there is none. latency records, for each
+	// finding, how long after that it was emitted.
+	pendingSince time.Time
+	latency      latencyHistogram
+
 	// graves lists exited processes in the order they exited, from
 	// oldestGrave on; tombstones is how many records are tombstones.
 	graves        []core.ProcessIdentity
@@ -181,6 +187,10 @@ type Metrics struct {
 	// TombstonesEvicted counts exited processes forgotten before their
 	// window was up because more than the cap had exited since.
 	TombstonesEvicted uint64
+
+	// DetectionLatency is how long findings have taken to be emitted,
+	// from the timestamp of the event that led to them.
+	DetectionLatency LatencySummary
 }
 
 // Option configures an Engine.
@@ -278,6 +288,10 @@ func (e *Engine) Process(event core.Event) {
 	// no timestamp is taken to have happened when it arrived.
 	if event.Timestamp.IsZero() || event.Timestamp.After(now) {
 		event.Timestamp = now
+	}
+
+	if e.pendingSince.IsZero() || event.Timestamp.Before(e.pendingSince) {
+		e.pendingSince = event.Timestamp
 	}
 
 	// Any event is evidence that its process exists, not only a start.
@@ -894,6 +908,11 @@ func (e *Engine) DetectBehaviors() []core.Finding {
 	// reportable. Everything else was evaluated the last time round, time
 	// passing only ever takes events out of the window, and a finding whose
 	// suppression has just lapsed had its processes marked as changed.
+	// Whatever is found from here on was set off by what has been taken
+	// in since the last evaluation.
+	pending := e.pendingSince
+	e.pendingSince = time.Time{}
+
 	seeds := e.touched
 	if e.rescan {
 		seeds = nil
@@ -948,6 +967,9 @@ func (e *Engine) DetectBehaviors() []core.Finding {
 
 			e.metrics.FindingsEmitted++
 			findings = append(findings, e.finding(pattern, match, now))
+			if !pending.IsZero() {
+				e.latency.record(e.now().Sub(pending))
+			}
 		}
 	}
 
@@ -1289,6 +1311,7 @@ func (e *Engine) Metrics() Metrics {
 	metrics.ActiveSuppressions = len(e.suppressed)
 	metrics.Processes = len(e.records)
 	metrics.Tombstones = e.tombstones
+	metrics.DetectionLatency = e.latency.summary()
 
 	return metrics
 }

@@ -308,6 +308,14 @@ func (u *DesktopUI) AddFinding(line string) {
 	u.findings.push(line)
 }
 
+// AddFindingWithEvidence logs a finding and stores its evidence with it.
+func (u *DesktopUI) AddFindingWithEvidence(line string, evidence core.Evidence) {
+	if u.store != nil {
+		u.store.WriteFinding(line, evidence)
+	}
+	u.findings.push(line)
+}
+
 // ── Password gate ─────────────────────────────────────────────────────────────
 
 func (u *DesktopUI) buildPasswordGate() fyne.CanvasObject {

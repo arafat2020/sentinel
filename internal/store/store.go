@@ -3,11 +3,17 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	"github.com/arafat2020/sentinel/internal/core"
 )
+
+// findingsTab is the tab findings are stored under.
+const findingsTab = "Findings"
 
 const (
 	DefaultRetentionDays = 7
@@ -27,6 +33,9 @@ type writeReq struct {
 	ts   time.Time
 	tab  string
 	line string
+	// evidence is a finding's evidence as JSON, or empty for a row that has
+	// none.
+	evidence string
 }
 
 // Open opens (or creates) the SQLite database at path and starts the
@@ -69,6 +78,38 @@ func migrate(db *sql.DB) error {
 		);
 		INSERT OR IGNORE INTO settings(key, value) VALUES('retention_days', '7');
 	`)
+	if err != nil {
+		return err
+	}
+
+	return addEvidenceColumn(db)
+}
+
+// addEvidenceColumn gives the events table its evidence column if a database
+// created by an earlier version does not have it. The column is nullable:
+// existing rows, and rows that are not findings, simply have no evidence.
+func addEvidenceColumn(db *sql.DB) error {
+	rows, err := db.Query(`SELECT name FROM pragma_table_info('events')`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return err
+		}
+		if name == "evidence" {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+
+	_, err = db.Exec(`ALTER TABLE events ADD COLUMN evidence TEXT`)
 	return err
 }
 
@@ -77,6 +118,22 @@ func migrate(db *sql.DB) error {
 func (s *Store) Write(tab, line string) {
 	select {
 	case s.writeCh <- writeReq{ts: time.Now(), tab: tab, line: line}:
+	default:
+	}
+}
+
+// WriteFinding queues a finding's log line together with its evidence: the
+// processes bound to the rule's roles and the events behind the match. Like
+// Write it does not block, and drops the row if the buffer is full.
+func (s *Store) WriteFinding(line string, evidence core.Evidence) {
+	encoded, err := json.Marshal(evidence)
+	if err != nil {
+		// The line is still worth keeping without its evidence.
+		encoded = nil
+	}
+
+	select {
+	case s.writeCh <- writeReq{ts: time.Now(), tab: findingsTab, line: line, evidence: string(encoded)}:
 	default:
 	}
 }
@@ -97,14 +154,18 @@ func (s *Store) writeLoop() {
 			batch = batch[:0]
 			return
 		}
-		stmt, err := tx.Prepare("INSERT INTO events(ts,tab,line) VALUES(?,?,?)")
+		stmt, err := tx.Prepare("INSERT INTO events(ts,tab,line,evidence) VALUES(?,?,?,?)")
 		if err != nil {
 			tx.Rollback()
 			batch = batch[:0]
 			return
 		}
 		for _, r := range batch {
-			stmt.Exec(r.ts.UTC().Format(time.RFC3339Nano), r.tab, r.line)
+			var evidence any // NULL unless the row has evidence
+			if r.evidence != "" {
+				evidence = r.evidence
+			}
+			stmt.Exec(r.ts.UTC().Format(time.RFC3339Nano), r.tab, r.line, evidence)
 		}
 		stmt.Close()
 		tx.Commit()
@@ -205,6 +266,10 @@ type Event struct {
 	TS   time.Time
 	Tab  string
 	Line string
+	// Evidence is the evidence stored with a finding, or nil for rows that
+	// have none: telemetry lines, and findings written before evidence was
+	// stored.
+	Evidence *core.Evidence
 }
 
 // QueryFilter specifies which events to return. Zero values mean "no filter".
@@ -222,7 +287,7 @@ func (s *Store) Query(f QueryFilter) ([]Event, error) {
 		limit = 200
 	}
 
-	q := "SELECT id, ts, tab, line FROM events WHERE 1=1"
+	q := "SELECT id, ts, tab, line, evidence FROM events WHERE 1=1"
 	args := []any{}
 
 	if f.Tab != "" {
@@ -250,10 +315,17 @@ func (s *Store) Query(f QueryFilter) ([]Event, error) {
 	for rows.Next() {
 		var e Event
 		var tsStr string
-		if err := rows.Scan(&e.ID, &tsStr, &e.Tab, &e.Line); err != nil {
+		var evidence sql.NullString
+		if err := rows.Scan(&e.ID, &tsStr, &e.Tab, &e.Line, &evidence); err != nil {
 			continue
 		}
 		e.TS, _ = time.Parse(time.RFC3339Nano, tsStr)
+		if evidence.Valid && evidence.String != "" {
+			var decoded core.Evidence
+			if json.Unmarshal([]byte(evidence.String), &decoded) == nil {
+				e.Evidence = &decoded
+			}
+		}
 		events = append(events, e)
 	}
 	return events, rows.Err()

@@ -125,7 +125,7 @@ func main() {
 	procEngine := processDetector.NewEngine(registry)
 
 	sink := finding.NewSinkFunc(func(f *core.Finding) {
-		ui.AddFinding(fmt.Sprintf("[%s] %s — %s", f.Rule, f.Title, f.Description))
+		ui.AddFindingWithEvidence(findingLine(f), f.Evidence)
 	})
 	coordinator := processDetector.NewCoordinator(procEngine, sink)
 

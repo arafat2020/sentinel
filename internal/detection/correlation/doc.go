@@ -24,6 +24,41 @@
 // A role that lists no events places no requirement on activity. A pattern
 // with no roles at all is a draft: valid, skipped, and never matched.
 //
+// A relationship is SPAWNED, parent and child, or DESCENDANT, where the
+// child is within max_depth generations below the parent. A DESCENDANT
+// relationship holds only through processes the engine knows and has not
+// yet forgotten, in whichever direction the chain is followed.
+//
+// # Thresholds
+//
+// An event requirement with count, within or distinct is met when the
+// process has produced count matching events, or matching events with count
+// distinct values of a field, inside some span of length within that ends
+// in the window. A span covers events strictly less than within apart. Once
+// met, the requirement stays met until that span's end leaves the window.
+//
+// Thresholds are counted as events arrive, in a counter per requirement and
+// process, so they are exact however many events a chain retains.
+//
+// # Sequences
+//
+// A pattern's sequence adds a constraint on a binding: one distinct
+// in-window event per step, of the step's type, on the process bound to the
+// step's role and satisfying the step's where block, such that
+//
+//   - no step's event is timestamped more than order_tolerance after the
+//     event of any later step, and
+//   - the first and last steps' events are at most within apart.
+//
+// Timestamps record when something was observed, and process and network
+// activity is observed by polling, so order is only known to within the
+// tolerance; [DefaultOrderTolerance] says why it is what it is.
+//
+// The sequence is searched for among stored events once every role is
+// bound, never tracked as events arrive, so the order in which events reach
+// the engine is irrelevant. A step may capture its event, and later steps
+// may compare their own event's fields with it.
+//
 // # Predicates
 //
 // A match block ([MatchBlock]) is a set of field predicates that must all
@@ -106,7 +141,12 @@
 //     event type per process (the newest win);
 //   - processes: those running, plus tombstones less than one window old;
 //   - relationships: at most one per process, removed with either end;
-//   - suppression records: one per finding, for one window.
+//   - suppression records: one per finding, for one window;
+//   - threshold counters: at most a fixed number, each holding no more than
+//     its requirement's count, released a window after their last event.
+//
+// Limits that were hit, each a place where a match may have been missed,
+// are counted in [Engine.Metrics].
 //
 // A sweep releases expired state periodically, by elapsed time or event
 // count. Matching never depends on a sweep having run.
@@ -114,7 +154,8 @@
 // # Findings and suppression
 //
 // A finding is identified by its rule and the set of processes bound to the
-// rule's roles, and carries those processes as evidence in role order. The
+// rule's roles, and carries as evidence those processes, by role, and a
+// capped sample of the events behind the match ([MaxEvidenceEvents]). The
 // same finding is not emitted again until one window after it was last
 // emitted. A different set of processes matching the same rule is a
 // different finding.

@@ -211,6 +211,24 @@ func TestSequenceWithinBoundary(t *testing.T) {
 		}
 	}
 
+	// The tolerance loosens ordering, not the span: with a tolerance, a last
+	// step just beyond within is still too far.
+	withTolerance := sequence
+	withTolerance.OrderTolerance = tolerance(3 * time.Second)
+	for last, want := range map[time.Duration]int{within: 1, within + time.Second: 0} {
+		h := newSequenceHarness(t, oneRoleSequence(withTolerance))
+		p := proc(50, 1, "p", at(0))
+		h.start(p, at(0))
+		h.play(p,
+			timed{core.EventDNSQuery, 2 * time.Second},
+			timed{core.EventNetworkConnect, 3 * time.Second},
+			timed{core.EventFileCreate, 2*time.Second + last},
+		)
+		if got := h.detect(at(20 * time.Second)); len(got) != want {
+			t.Errorf("with a tolerance, last step %v after the first: findings = %d, want %d", last, len(got), want)
+		}
+	}
+
 	// A later first step can still be within reach when an earlier one is not.
 	h := newSequenceHarness(t, oneRoleSequence(sequence))
 	p := proc(50, 1, "p", at(0))

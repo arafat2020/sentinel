@@ -185,6 +185,7 @@ events:
 | `FILE_DELETE` | A file was deleted | `path`, `old_path` |
 | `FILE_RENAME` | A file was renamed or moved | `path`, `old_path` |
 | `PROCESS_START` | A new process was created | `name`, `exe`, `cmdline`, `user` (of the process) |
+| `PROCESS_EXEC` | A running process replaced its program with `execve` | `name`, `exe`, `cmdline`, `user` (of the new program) |
 | `PROCESS_EXIT` | A process terminated | `name`, `exe`, `cmdline`, `user` (of the process) |
 | `PERSISTENCE_CHANGE` | (planned) | none |
 | `SCRIPT_EXECUTION` | (planned) | none |
@@ -275,12 +276,13 @@ in what order the events reached Sentinel, only what their timestamps say.
 
 ### Why a tolerance
 
-An event's timestamp is the moment **Sentinel observed** it, not the moment it
-happened:
+For some events the timestamp is the moment **Sentinel observed** it, not the
+moment it happened:
 
 | Events | How Sentinel learns of them | Timestamp is | Lag behind the action |
 |---|---|---|---|
-| `PROCESS_START`, `PROCESS_EXIT` | Polling the process table every 2 seconds | When the poll noticed the change | Up to 2 s, plus the time the poll takes |
+| `PROCESS_*` on Linux with the `ebpf` or `proc-connector` collector | The kernel reports each fork, exec and exit | When the kernel says it happened | None (the conversion is accurate to well under a microsecond) |
+| `PROCESS_START`, `PROCESS_EXIT` with the `poll` collector (the only one on macOS and Windows) | Polling the process table every 2 seconds | When the poll noticed the change | Up to 2 s, plus the time the poll takes |
 | `NETWORK_CONNECT`, `NETWORK_CLOSE` | Polling open connections every 2 seconds | When the poll noticed the change | Up to 2 s, plus the time the poll takes |
 | `DNS_QUERY` | Packet capture (all platforms) | When the packet was decoded | Milliseconds |
 | `FILE_*` on Linux | fanotify | When the event was read | Milliseconds |
@@ -296,9 +298,41 @@ covers the 2-second polling interval and the time a poll takes.
 The tolerance applies between every earlier and later step, not just
 neighbours, so it cannot be chained to walk a sequence backwards. Set
 `order_tolerance: 0s` to require strict timestamp order, which is appropriate
-when every step is a DNS or file event. A wider tolerance accepts more
-out-of-order cases: with the default, two events really 2 seconds apart in the
-"wrong" order can still satisfy a sequence.
+when every step is a DNS or file event, or a process event from the `ebpf`
+collector. A wider tolerance accepts more out-of-order cases: with the default,
+two events really 2 seconds apart in the "wrong" order can still satisfy a
+sequence.
+
+The default stays at 3 seconds even with event-driven process collection,
+because connections are still found by polling.
+
+### How processes are collected
+
+On Linux, Sentinel can be told about processes by the kernel as they start,
+exec and exit, instead of comparing the process table every two seconds. This
+changes what a pattern can see:
+
+| | `ebpf` | `proc-connector` | `poll` |
+|---|---|---|---|
+| A process that runs for a few milliseconds | Reported, with its full command line | Reported, often without its command line | Not seen |
+| `PROCESS_START` timestamp | When it happened | When it happened | Up to 2 s late |
+| `PROCESS_EXEC` | Reported | Reported | Never reported |
+
+Sequence patterns that end in a short-lived process, like
+[download and execute](#4-download-and-execute), depend on this: with `poll`
+they fire only if the payload is still running at the next poll.
+
+A new process is a fork followed, usually at once, by an exec. Sentinel reports
+that as one `PROCESS_START` describing the program that was exec'd. A process
+that execs again later, or that did not exec within 50 ms of being forked, gets
+a `PROCESS_EXEC` for the later exec: it is the same process, with the same
+identity and history, running a different program. Roles match a process by
+the program it is running **now**; `where` on a `PROCESS_START` or
+`PROCESS_EXEC` event matches the program that event announced.
+
+Which collector is in use is shown in the Health view (TUI tab 9, the desktop
+Settings tab, and the headless log) and is chosen with `--process-collector`.
+The details are in [Linux Process Collection](linux-process-collector.md).
 
 ### Captures
 
@@ -510,7 +544,11 @@ counters, so an updated pattern can fire immediately.
 
 Every finding records what it is based on:
 
-- **Roles:** which process filled each role of the rule.
+- **Roles:** which process filled each role of the rule, described as it was
+  when the rule matched.
+- **Previous images:** for a role whose process has replaced its program with
+  `exec`, the programs it ran before (name, executable, command line, and when
+  each was replaced), oldest first. The last four are kept.
 - **Events:** the events of the rule's sequence, in step order; then one
   example of each event requirement; then up to 10 of the most recent events
   counted towards each threshold. At most 50 events are kept per finding, so
@@ -521,6 +559,21 @@ names the process in each role, for example
 `(dropper=sh(4120) payload=x(4131))`. The full evidence is stored with the
 finding in `sentinel.db`, in the `evidence` column of the `events` table, as
 JSON. Findings stored by earlier versions have no evidence.
+
+The JSON uses fixed snake_case keys:
+
+```json
+{
+  "process": { "pid": 4131, "ppid": 4120, "start_time": "2026-10-10T15:30:42.67Z", "name": "x", "executable": "/tmp/x", "command_line": "/tmp/x", "user": "www-data" },
+  "roles": { "payload": { "pid": 4131, "…": "…" } },
+  "previous_images": { "payload": [ { "name": "sh", "executable": "/bin/dash", "command_line": "sh -c …", "replaced_at": "2026-10-10T15:30:42.67Z" } ] },
+  "events": [ { "timestamp": "2026-10-10T15:30:37.098Z", "type": "FILE_CREATE", "process": { "…": "…" }, "file": { "pid": 4125, "path": "/tmp/x", "operation": "CREATE" } } ]
+}
+```
+
+Evidence written before these keys were fixed used the Go field names
+(`StartTime`, `CommandLine`, `RemoteAddress`, …). Those rows are still read
+correctly; new rows are always written with the keys above.
 
 ---
 
@@ -608,6 +661,8 @@ and runs with the built-in default pattern.
 | Text where a number is needed | `where.remote_port: "eq" needs an integer, got "https"` |
 | Empty `in` list or `any_of` | `match.name: "in" needs at least one value` |
 | Empty operator object | `match.name: no operator given` |
+| Unknown event type | `role "shell": events[1]: unknown event type "NETWORK_CONECT" (valid types: DNS_QUERY, FILE_CREATE, …)` |
+| Unknown event type in a sequence | `sequence: steps[1]: unknown event type "PROCESS_RUN" (valid types: …)` |
 | Duplicate role IDs | `duplicate role id "a"` |
 | Relationship naming an unknown role | `relationship references unknown role "ghost"` |
 | Two or more roles not all related | `role "c" is not part of any relationship` |

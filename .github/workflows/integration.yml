@@ -49,3 +49,8 @@ jobs:
 
       - name: Integration tests (root)
         run: sudo env "PATH=$PATH" "GOFLAGS=-buildvcs=false" go test -tags integration -count=1 -v ./internal/collector/process/...
+
+      # The end-to-end test above depends on fanotify reporting the path of
+      # the file that was created.
+      - name: fanotify reports paths (root)
+        run: sudo env "PATH=$PATH" "GOFLAGS=-buildvcs=false" go test -tags integration -count=1 -v -run TestFanotifyReportsPaths ./internal/collector/file/

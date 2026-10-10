@@ -17,3 +17,20 @@ patterns:
         - type: SPAWNED
           parent: parent
           child: child
+    - name: suspicious-child-process
+      severity: HIGH
+      title: Suspicious child process
+      description: A node process spawned a Python interpreter.
+      processes:
+        - id: parent
+          match:
+            name: {eq: node}
+          events: []
+        - id: child
+          match:
+            name: {regex: '^python[0-9.]*$'}
+          events: []
+      relationships:
+        - type: SPAWNED
+          parent: parent
+          child: child

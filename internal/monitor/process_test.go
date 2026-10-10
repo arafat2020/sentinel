@@ -123,7 +123,7 @@ func TestProcessMonitorUpdatesCoordinatorBeforePublishing(t *testing.T) {
 	}
 
 	registry := processDetector.NewRegistry()
-	registry.Register(processDetector.NewSuspiciousChildProcessRule())
+	registry.Register(pythonUnderNode{})
 
 	engine := processDetector.NewEngine(registry)
 	sink := &fakeFindingSink{}
@@ -273,4 +273,19 @@ func TestProcessMonitorCollectsImmediately(t *testing.T) {
 	}
 
 	cancel()
+}
+
+// pythonUnderNode is a process rule for this test: it reports a python
+// process whose parent is node.
+type pythonUnderNode struct{}
+
+func (pythonUnderNode) Evaluate(ctx *processDetector.RuleContext, identity core.ProcessIdentity) *core.Finding {
+	child, ok := ctx.Tree.Process(identity)
+	if !ok || child.Name != "python" {
+		return nil
+	}
+	if parent, ok := ctx.Tree.Parent(identity); !ok || parent.Name != "node" {
+		return nil
+	}
+	return &core.Finding{Rule: "python-under-node", Evidence: core.Evidence{Process: &child}}
 }

@@ -304,6 +304,40 @@ func DefaultPatterns() []BehaviorPattern {
 				},
 			},
 		},
+		// This was a rule written in Go until it could be said here.
+		{
+			Name:        "suspicious-child-process",
+			Severity:    core.SeverityHigh,
+			Title:       "Suspicious child process",
+			Description: "A node process spawned a Python interpreter.",
+
+			Processes: []ProcessPattern{
+				{
+					ID: "parent",
+					Match: &MatchBlock{
+						Fields: []FieldPredicate{
+							{Field: "name", Predicate: Predicate{Eq: stringPtr("node")}},
+						},
+					},
+				},
+				{
+					ID: "child",
+					Match: &MatchBlock{
+						Fields: []FieldPredicate{
+							{Field: "name", Predicate: Predicate{Regex: stringPtr(`^python[0-9.]*$`)}},
+						},
+					},
+				},
+			},
+
+			Relationships: []RelationshipPattern{
+				{
+					Type:   RelationshipSpawned,
+					Parent: "parent",
+					Child:  "child",
+				},
+			},
+		},
 	}
 }
 

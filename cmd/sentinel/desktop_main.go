@@ -45,9 +45,19 @@ func runDesktopMode(
 	patterns config.PatternSet,
 	patternsPath string,
 	eventStore *store.Store,
+	collectors collectorFlags,
 ) {
 	if err := checkDisplayAvailable(); err != nil {
 		fmt.Fprintln(os.Stderr, "sentinel: --desktop is unavailable:", err)
+		os.Exit(1)
+	}
+
+	// Opened first, so that nothing starts unobserved while the rest is set
+	// up, and a backend that cannot start is reported before a window opens.
+	procCol := processCollector.NewCollector()
+	collection, err := openProcessCollection(collectors, procCol)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sentinel: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -63,10 +73,10 @@ func runDesktopMode(
 	})
 
 	bus := eventbus.New(1000)
+	dui.SetHealth((&health{collection: collection, bus: bus, engine: corrEngine}).Text)
 
 	// ── Process detection ─────────────────────────────────────────────────────
 
-	procCol := processCollector.NewCollector()
 	lifecycleDetector := processDetector.NewLifecycleDetector()
 	registry := processDetector.NewRegistry()
 	registry.Register(processDetector.NewSuspiciousChildProcessRule())
@@ -83,7 +93,7 @@ func runDesktopMode(
 		if event.Process == nil {
 			return
 		}
-		if event.Type == core.EventProcessStart || event.Type == core.EventProcessExit {
+		if event.Type == core.EventProcessStart || event.Type == core.EventProcessExit || event.Type == core.EventProcessExec {
 			dui.AddProcess(fmt.Sprintf("%s  PID=%-6d  %-20s  %s",
 				event.Type,
 				event.Process.PID,
@@ -171,22 +181,11 @@ func runDesktopMode(
 	netDetector := networkdetector.NewLifecycleDetector()
 	netMonitor := monitor.NewNetworkMonitor(netCol, netDetector, 2*time.Second, bus)
 
-	processMonitor := monitor.NewProcessMonitor(
-		procCol,
-		lifecycleDetector,
-		2*time.Second,
-		bus,
-		coordinator,
-	)
-
-	// Tell the correlation engine about processes that are already running,
-	// so they can be recognised as parents of what they spawn from now on.
-	if snapshot, err := procCol.Collect(ctx); err == nil {
-		corrEngine.Seed(snapshot.Processes)
-	}
-
 	bus.Start(ctx)
-	go processMonitor.Run(ctx)
+	for _, line := range collection.Describe() {
+		dui.AddProcess(line)
+	}
+	collection.Start(ctx, bus, lifecycleDetector, coordinator, corrEngine, dui.AddProcess)
 	go netMonitor.Run(ctx)
 
 	go func() {

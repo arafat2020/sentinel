@@ -167,13 +167,17 @@ type DesktopUI struct {
 	patternProblemsL *widget.Label
 	patternLoadErrs  []config.PatternError
 
+	// health renders the Health section of the Settings tab.
+	health func() string
+
 	stopOnce sync.Once
+	stopped  chan struct{}
 }
 
 // NewDesktopUI constructs the Fyne app and main window. Call SetStore and
 // SetPatterns before Run.
 func NewDesktopUI() *DesktopUI {
-	u := &DesktopUI{patternEditIdx: -1}
+	u := &DesktopUI{patternEditIdx: -1, stopped: make(chan struct{})}
 	u.fyneApp = app.NewWithID("com.arafat2020.sentinel")
 	u.fyneApp.Settings().SetTheme(&sentinelTheme{})
 
@@ -191,6 +195,9 @@ func NewDesktopUI() *DesktopUI {
 
 // SetStore attaches the SQLite event store.
 func (u *DesktopUI) SetStore(s *store.Store) { u.store = s }
+
+// SetHealth gives the Settings tab the text of its Health section.
+func (u *DesktopUI) SetHealth(text func() string) { u.health = text }
 
 // SetPatternErrors gives the UI the entries of the patterns file that could
 // not be loaded. Call before Run.
@@ -265,7 +272,12 @@ func (u *DesktopUI) Run() error {
 
 // Stop closes the Fyne application.
 func (u *DesktopUI) Stop() {
-	u.stopOnce.Do(func() { u.fyneApp.Quit() })
+	u.stopOnce.Do(func() {
+		if u.stopped != nil {
+			close(u.stopped)
+		}
+		u.fyneApp.Quit()
+	})
 }
 
 // AddProcess logs a process event line.
@@ -555,10 +567,39 @@ func (u *DesktopUI) buildSettingsTab() fyne.CanvasObject {
 		container.NewHBox(refreshBtn, disableBtn, enableBtn),
 	)
 
+	// Health section: collectors, drops and engine limits, refreshed while
+	// the window is open.
+	healthTitle := widget.NewLabel("Health")
+	healthTitle.TextStyle = fyne.TextStyle{Bold: true}
+
+	healthText := widget.NewLabel("Collector health is not available.")
+	healthText.TextStyle = fyne.TextStyle{Monospace: true}
+
+	if u.health != nil {
+		healthText.SetText(u.health())
+		go func() {
+			ticker := time.NewTicker(2 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-u.stopped:
+					return
+				case <-ticker.C:
+					text := u.health()
+					fyne.Do(func() { healthText.SetText(text) })
+				}
+			}
+		}()
+	}
+
+	healthSection := container.NewVBox(healthTitle, healthText)
+
 	return container.NewVBox(
 		container.NewPadded(retSection),
 		widget.NewSeparator(),
 		container.NewPadded(sshSection),
+		widget.NewSeparator(),
+		container.NewPadded(healthSection),
 	)
 }
 

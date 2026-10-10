@@ -278,7 +278,10 @@ func TestArrowKeysPassThroughSettingsTab(t *testing.T) {
 		h.wantTab(i % tabCount)
 	}
 
-	// And left, which enters Settings from the Resources side.
+	// And left, which wraps to the last tab and enters Settings from the
+	// Resources side.
+	h.key(tcell.KeyLeft, 0)
+	h.wantTab(tabHealth)
 	h.key(tcell.KeyLeft, 0)
 	h.wantTab(tabResources)
 	h.key(tcell.KeyLeft, 0)

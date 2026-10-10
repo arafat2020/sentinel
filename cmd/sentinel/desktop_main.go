@@ -51,7 +51,7 @@ func runDesktopMode(
 		os.Exit(1)
 	}
 
-	corrEngine := correlation.NewEngine(5 * time.Minute)
+	corrEngine := correlation.NewEngine(correlation.DefaultWindow)
 	corrEngine.SetPatterns(patterns.Patterns)
 	_ = corrEngine.SetExclusions(patterns.Exclusions)
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"golang.org/x/term"
 	"net/http"
 	_ "net/http/pprof" // registers on the default mux, served only with --pprof-addr
 	"os"
@@ -109,7 +110,11 @@ func main() {
 		}
 		// password gate handled inside DesktopUI.Run()
 	} else if eventStore != nil {
-		runPasswordGate(eventStore, *resetPW)
+		if passwordGateApplies(*headless, *resetPW, term.IsTerminal(int(os.Stdin.Fd()))) {
+			runPasswordGate(eventStore, *resetPW)
+		} else {
+			fmt.Println("sentinel: no terminal on standard input; starting headless without the password prompt")
+		}
 	} else if *resetPW {
 		fmt.Fprintln(os.Stderr, "sentinel: cannot reset password — database unavailable")
 		os.Exit(1)

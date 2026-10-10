@@ -54,3 +54,8 @@ jobs:
       # the file that was created.
       - name: fanotify reports paths (root)
         run: sudo env "PATH=$PATH" "GOFLAGS=-buildvcs=false" go test -tags integration -count=1 -v -run TestFanotifyReportsPaths ./internal/collector/file/
+
+      # A service must stop when asked: the DNS capture must not hold its
+      # handle while waiting for a packet that may never come.
+      - name: DNS capture closes promptly (root)
+        run: sudo env "PATH=$PATH" "GOFLAGS=-buildvcs=false" go test -tags integration -count=1 -v -run TestLinuxCaptureSeesQueriesAndClosesPromptly ./internal/collector/dns/

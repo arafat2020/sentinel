@@ -183,3 +183,24 @@ func TestHealthTab(t *testing.T) {
 	h.key(tcell.KeyRight, 0)
 	h.wantTab(tabProcess)
 }
+
+// The password prompt is for someone at a terminal. A headless service has no
+// terminal and must start without one.
+func TestPasswordGateApplies(t *testing.T) {
+	cases := []struct {
+		name                     string
+		headless, reset, onATerm bool
+		want                     bool
+	}{
+		{"TUI at a terminal", false, false, true, true},
+		{"TUI with input redirected", false, false, false, true},
+		{"headless at a terminal", true, false, true, true},
+		{"headless under systemd", true, false, false, false},
+		{"reset is always interactive", true, true, false, true},
+	}
+	for _, c := range cases {
+		if got := passwordGateApplies(c.headless, c.reset, c.onATerm); got != c.want {
+			t.Errorf("%s: gate applies = %v, want %v", c.name, got, c.want)
+		}
+	}
+}

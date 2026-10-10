@@ -247,6 +247,12 @@ For a restricted account, the collectors need:
 `install.sh` reports which backend `auto` will most likely choose on the host,
 from the kernel version and the presence of BTF.
 
+The unit it writes runs `sentinel --headless` with `StateDirectory=sentinel`
+and `WorkingDirectory=/var/lib/sentinel`. Started like that, with no terminal,
+Sentinel skips its password prompt (the password guards the TUI and the
+desktop UI; see the README) and stops within a fraction of a second of
+`systemctl stop`.
+
 ## Building
 
 `go build` needs no clang: the compiled eBPF objects and their Go bindings

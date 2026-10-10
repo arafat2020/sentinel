@@ -43,6 +43,30 @@ Password set. Starting Sentinel...
 Passwords are stored as **bcrypt hashes** (cost 12) inside `sentinel.db` — the
 plaintext is never written to disk.
 
+### Running as a service
+
+The password guards the interactive interfaces. `sentinel --headless` started
+**without a terminal** on standard input — which is how systemd, cron and
+`nohup … < /dev/null` start it — does not ask for it: there is nobody to ask,
+and nothing interactive to protect. It logs
+
+```
+sentinel: no terminal on standard input; starting headless without the password prompt
+```
+
+and carries on. `sentinel --headless` typed at a terminal still asks, as do the
+TUI and the desktop UI.
+
+The systemd unit written by `install.sh` runs `sentinel --headless` as root
+with `/var/lib/sentinel` as its working directory, so the service keeps its own
+`sentinel.db` and `configs/patterns.yaml` there, separate from wherever you run
+the TUI. Findings go to the journal:
+
+```bash
+sudo journalctl -fu sentinel
+cd /var/lib/sentinel && sudo sentinel --query --tab Findings
+```
+
 ### Reset the password
 
 ```bash

@@ -152,7 +152,14 @@ Documentation=https://github.com/${REPO}
 
 [Service]
 Type=simple
-ExecStart=${INSTALL_DIR}/${BINARY_NAME}
+# Headless: findings go to the journal. Started this way, with no terminal,
+# Sentinel does not ask for its password (there is nobody to ask); the
+# password still guards the TUI and the desktop UI.
+ExecStart=${INSTALL_DIR}/${BINARY_NAME} --headless
+# sentinel.db and configs/patterns.yaml are kept relative to the working
+# directory. systemd creates /var/lib/sentinel.
+StateDirectory=sentinel
+WorkingDirectory=/var/lib/sentinel
 Restart=on-failure
 RestartSec=5s
 # Sentinel runs as root, which is sufficient for every collector. What each
@@ -177,6 +184,8 @@ EOF
     green "Service enabled and started"
     green "  sudo systemctl status sentinel"
     green "  sudo journalctl -fu sentinel"
+    green "The service runs headless and keeps its data in /var/lib/sentinel:"
+    green "  cd /var/lib/sentinel && sudo sentinel --query --tab Findings"
   fi
 fi
 

@@ -19,6 +19,9 @@ type Match struct {
 	// Processes are the bound processes, in the order the pattern lists its
 	// roles.
 	Processes []core.Process
+	// Events are the events that satisfied the pattern's sequence, one per
+	// step and in step order. It is nil for a pattern without a sequence.
+	Events []core.Event
 }
 
 // MatchProcess reports whether the process meets the role's conditions and
@@ -27,7 +30,7 @@ func (m *Matcher) MatchProcess(
 	pattern ProcessPattern,
 	process core.Process,
 ) bool {
-	role, err := compileRole(pattern)
+	role, err := compileRole(pattern, DefaultWindow)
 	if err != nil {
 		return false
 	}
@@ -42,12 +45,12 @@ func (m *Matcher) MatchEvents(
 	pattern ProcessPattern,
 	chain *Chain,
 ) bool {
-	role, err := compileRole(pattern)
+	role, err := compileRole(pattern, DefaultWindow)
 	if err != nil || chain == nil {
 		return false
 	}
 
-	return role.satisfiedBy(chain.Events())
+	return role.satisfiedBy(chain.Events()) && role.thresholdsMetBy(chain.Events())
 }
 
 // MatchEventsAfter is MatchEvents restricted to events whose timestamp is
@@ -57,12 +60,14 @@ func (m *Matcher) MatchEventsAfter(
 	chain *Chain,
 	cutoff time.Time,
 ) bool {
-	role, err := compileRole(pattern)
+	role, err := compileRole(pattern, DefaultWindow)
 	if err != nil || chain == nil {
 		return false
 	}
 
-	return role.satisfiedBy(chain.EventsAfter(cutoff))
+	events := chain.EventsAfter(cutoff)
+
+	return role.satisfiedBy(events) && role.thresholdsMetBy(events)
 }
 
 func (m *Matcher) MatchRelationship(
@@ -105,9 +110,9 @@ func (m *Matcher) FindMatches(
 	relationships []ProcessRelationship,
 	chains map[core.ProcessIdentity][]*Chain,
 ) []Match {
-	compiled, _ := compilePattern(pattern)
+	compiled, _ := compilePattern(pattern, DefaultWindow)
 
-	return m.find(compiled, newSliceWorld(relationships, chains), (*Chain).Events, nil)
+	return m.find(compiled, newSliceWorld(relationships, chains, (*Chain).Events), (*Chain).Events, nil)
 }
 
 // FindMatchesAfter is FindMatches restricted to events whose timestamp is
@@ -118,14 +123,10 @@ func (m *Matcher) FindMatchesAfter(
 	chains map[core.ProcessIdentity][]*Chain,
 	cutoff time.Time,
 ) []Match {
-	compiled, _ := compilePattern(pattern)
+	compiled, _ := compilePattern(pattern, DefaultWindow)
+	window := func(chain *Chain) []core.Event { return chain.EventsAfter(cutoff) }
 
-	return m.find(
-		compiled,
-		newSliceWorld(relationships, chains),
-		func(chain *Chain) []core.Event { return chain.EventsAfter(cutoff) },
-		nil,
-	)
+	return m.find(compiled, newSliceWorld(relationships, chains, window), window, nil)
 }
 
 // MatchAnyChain reports whether any one chain satisfies the pattern's event
@@ -135,9 +136,15 @@ func (m *Matcher) MatchAnyChain(
 	pattern ProcessPattern,
 	chains []*Chain,
 ) bool {
-	role, err := compileRole(pattern)
+	role, err := compileRole(pattern, DefaultWindow)
 	if err != nil {
 		return false
+	}
+
+	for _, chain := range chains {
+		if !role.thresholdsMetBy(chain.Events()) {
+			return false
+		}
 	}
 
 	return anyChainSatisfies(role, chains, (*Chain).Events)
@@ -174,9 +181,21 @@ type world interface {
 	parentOf(child core.ProcessIdentity) (core.ProcessIdentity, bool)
 	// The each* methods stop when visit returns false.
 	eachChild(parent core.ProcessIdentity, visit func(core.ProcessIdentity) bool)
+	// eachDescendant visits the descendants of parent down to maxDepth
+	// generations. The walk is bounded; an implementation that cuts it
+	// short records that it did.
+	eachDescendant(parent core.ProcessIdentity, maxDepth int, visit func(core.ProcessIdentity) bool)
 	eachRelationship(visit func(parent, child core.ProcessIdentity) bool)
 	eachProcess(visit func(core.ProcessIdentity) bool)
 	chainsOf(core.ProcessIdentity) []*Chain
+	// thresholdMet reports whether the process currently meets a counting
+	// requirement.
+	thresholdMet(requirement *compiledEvent, process core.ProcessIdentity) bool
+	// sequenceNotFound is told when roles were bound but no events
+	// satisfied the pattern's sequence, so that an implementation can count
+	// the cases where that may be for want of retained events or of search
+	// budget rather than because the sequence did not happen.
+	sequenceNotFound(processes []core.ProcessIdentity, searchExhausted bool)
 }
 
 // find searches w for ways of binding the pattern's roles.
@@ -272,22 +291,27 @@ func (s *search) satisfy() {
 
 	switch {
 	case s.isBound[link.parent] && s.isBound[link.child]:
-		if actual, ok := s.world.parentOf(s.bound[link.child]); ok && actual == s.bound[link.parent] {
+		if s.isAncestor(s.bound[link.parent], s.bound[link.child], link.depth) {
 			s.satisfy()
 		}
 
 	case s.isBound[link.parent]:
-		s.world.eachChild(s.bound[link.parent], func(identity core.ProcessIdentity) bool {
+		visit := func(identity core.ProcessIdentity) bool {
 			s.try(link.child, identity)
 			return true
-		})
-
-	case s.isBound[link.child]:
-		if identity, ok := s.world.parentOf(s.bound[link.child]); ok {
-			s.try(link.parent, identity)
+		}
+		if link.depth == 1 {
+			s.world.eachChild(s.bound[link.parent], visit)
+		} else {
+			s.world.eachDescendant(s.bound[link.parent], link.depth, visit)
 		}
 
-	default:
+	case s.isBound[link.child]:
+		s.eachAncestor(s.bound[link.child], link.depth, func(identity core.ProcessIdentity) {
+			s.try(link.parent, identity)
+		})
+
+	case link.depth == 1:
 		// Nothing to extend from: start from the known relationships.
 		s.world.eachRelationship(func(parentID, childID core.ProcessIdentity) bool {
 			if s.bind(link.parent, parentID) {
@@ -296,7 +320,55 @@ func (s *search) satisfy() {
 			}
 			return true
 		})
+
+	default:
+		// Nothing to extend from, and the pairs are not listed anywhere:
+		// take each process as the descendant and look up its ancestry.
+		s.world.eachProcess(func(childID core.ProcessIdentity) bool {
+			if s.bind(link.child, childID) {
+				s.eachAncestor(childID, link.depth, func(identity core.ProcessIdentity) {
+					s.try(link.parent, identity)
+				})
+				s.unbind(link.child)
+			}
+			return true
+		})
 	}
+}
+
+// eachAncestor visits the ancestors of a process, nearest first, up to
+// maxDepth generations. The chain stops at the first process whose parent is
+// not known: ancestry is never assumed across a gap.
+func (s *search) eachAncestor(identity core.ProcessIdentity, maxDepth int, visit func(core.ProcessIdentity)) {
+	current := identity
+
+	for generation := 0; generation < maxDepth; generation++ {
+		parent, ok := s.world.parentOf(current)
+		if !ok {
+			return
+		}
+		visit(parent)
+		current = parent
+	}
+}
+
+// isAncestor reports whether ancestor is within maxDepth generations above
+// descendant.
+func (s *search) isAncestor(ancestor, descendant core.ProcessIdentity, maxDepth int) bool {
+	current := descendant
+
+	for generation := 0; generation < maxDepth; generation++ {
+		parent, ok := s.world.parentOf(current)
+		if !ok {
+			return false
+		}
+		if parent == ancestor {
+			return true
+		}
+		current = parent
+	}
+
+	return false
 }
 
 // nextRelationship picks an unsatisfied relationship pattern, preferring one
@@ -361,8 +433,18 @@ func (s *search) suits(role int, identity core.ProcessIdentity) bool {
 
 	compiled := &s.pattern.roles[role]
 
-	return compiled.suitsProcess(process) &&
-		anyChainSatisfies(compiled, s.world.chainsOf(identity), s.window)
+	if !compiled.suitsProcess(process) ||
+		!anyChainSatisfies(compiled, s.world.chainsOf(identity), s.window) {
+		return false
+	}
+
+	for i := range compiled.thresholds {
+		if !s.world.thresholdMet(&compiled.thresholds[i], identity) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // emit records the current bindings as a match.
@@ -377,7 +459,55 @@ func (s *search) emit() {
 		processes[i] = *process
 	}
 
-	s.matches = append(s.matches, Match{Processes: processes})
+	match := Match{Processes: processes}
+
+	if s.pattern.sequence != nil {
+		events, ok := s.findSequence()
+		if !ok {
+			return
+		}
+		match.Events = events
+	}
+
+	s.matches = append(s.matches, match)
+}
+
+// findSequence looks, among the in-window events of the bound processes,
+// for one event per step that satisfies the pattern's sequence. It is run
+// only once every role is bound, so the sequence is a constraint on a
+// binding rather than something tracked as events arrive: events that reach
+// the engine out of order need no special handling.
+func (s *search) findSequence() ([]core.Event, bool) {
+	sequence := s.pattern.sequence
+
+	q := sequenceSearch{
+		sequence:   sequence,
+		candidates: make([][]core.Event, len(sequence.steps)),
+		chosen:     make([]*core.Event, len(sequence.steps)),
+		captured:   make([]*core.Event, sequence.captures),
+		budget:     maxSequenceSearch,
+	}
+
+	for i, step := range sequence.steps {
+		// A process has one chain in an engine; a caller holding its own
+		// chains is expected to keep a process's events together.
+		for _, chain := range s.world.chainsOf(s.bound[step.role]) {
+			q.candidates[i] = s.window(chain)
+			break
+		}
+	}
+
+	if !q.find() {
+		s.world.sequenceNotFound(s.bound, q.exhausted)
+		return nil, false
+	}
+
+	events := make([]core.Event, len(q.chosen))
+	for i, event := range q.chosen {
+		events[i] = *event
+	}
+
+	return events, true
 }
 
 // sliceWorld is a world built from a list of relationships, for callers that
@@ -386,16 +516,20 @@ type sliceWorld struct {
 	processes map[core.ProcessIdentity]*core.Process
 	topology  *topology
 	chains    map[core.ProcessIdentity][]*Chain
+	// window selects the events of a chain that count.
+	window func(*Chain) []core.Event
 }
 
 func newSliceWorld(
 	relationships []ProcessRelationship,
 	chains map[core.ProcessIdentity][]*Chain,
+	window func(*Chain) []core.Event,
 ) *sliceWorld {
 	w := &sliceWorld{
 		processes: make(map[core.ProcessIdentity]*core.Process),
 		topology:  newTopology(),
 		chains:    chains,
+		window:    window,
 	}
 
 	for _, relationship := range relationships {
@@ -431,6 +565,10 @@ func (w *sliceWorld) eachChild(parent core.ProcessIdentity, visit func(core.Proc
 	}
 }
 
+func (w *sliceWorld) eachDescendant(parent core.ProcessIdentity, maxDepth int, visit func(core.ProcessIdentity) bool) {
+	walkDescendants(w.topology, parent, maxDepth, nil, visit)
+}
+
 func (w *sliceWorld) eachRelationship(visit func(parent, child core.ProcessIdentity) bool) {
 	for child, parent := range w.topology.parent {
 		if !visit(parent, child) {
@@ -449,4 +587,17 @@ func (w *sliceWorld) eachProcess(visit func(core.ProcessIdentity) bool) {
 
 func (w *sliceWorld) chainsOf(identity core.ProcessIdentity) []*Chain {
 	return w.chains[identity]
+}
+
+func (w *sliceWorld) sequenceNotFound([]core.ProcessIdentity, bool) {}
+
+// thresholdMet counts over the events the chains happen to hold: there is no
+// engine here keeping counters as events arrive.
+func (w *sliceWorld) thresholdMet(requirement *compiledEvent, process core.ProcessIdentity) bool {
+	for _, chain := range w.chains[process] {
+		if !requirement.replay(w.window(chain)).metAt.IsZero() {
+			return true
+		}
+	}
+	return false
 }

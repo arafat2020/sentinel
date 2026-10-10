@@ -73,7 +73,7 @@ func runDesktopMode(
 	procEngine := processDetector.NewEngine(registry)
 
 	sink := finding.NewSinkFunc(func(f *core.Finding) {
-		dui.AddFinding(fmt.Sprintf("[%s] %s — %s", f.Rule, f.Title, f.Description))
+		dui.AddFindingWithEvidence(findingLine(f), f.Evidence)
 	})
 	coordinator := processDetector.NewCoordinator(procEngine, sink)
 

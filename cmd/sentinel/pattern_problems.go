@@ -4,7 +4,9 @@ import (
 	"fmt"
 
 	"github.com/arafat2020/sentinel/internal/config"
+	"github.com/arafat2020/sentinel/internal/core"
 	"github.com/arafat2020/sentinel/internal/detection/correlation"
+	"github.com/arafat2020/sentinel/internal/finding"
 )
 
 // advancedFieldsNote marks a pattern or role that uses parts of the pattern
@@ -32,6 +34,18 @@ func patternProblems(loadErrors []config.PatternError, patterns []correlation.Be
 	}
 
 	return problems
+}
+
+// findingLine is how a finding is shown and stored: the rule, what it
+// means, and which process filled each of the rule's roles.
+func findingLine(f *core.Finding) string {
+	line := fmt.Sprintf("[%s] %s — %s", f.Rule, f.Title, f.Description)
+
+	if roles := finding.FormatRoles(f.Evidence); roles != "" {
+		line += "  (" + roles + ")"
+	}
+
+	return line
 }
 
 // loadPatternSet reads the patterns file, falling back to the built-in

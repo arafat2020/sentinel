@@ -1,0 +1,66 @@
+# Exercises the temporal and structural parts of the schema: DESCENDANT,
+# thresholds, and a sequence with a capture. Used by the round-trip tests.
+patterns:
+    - name: download-and-execute
+      severity: CRITICAL
+      title: Downloaded file executed
+      description: A process fetched something, wrote a file under /tmp and its child ran it.
+      processes:
+        - id: ancestor
+          match:
+            name: {in: [nginx, httpd]}
+          events: []
+        - id: dropper
+          events:
+            - type: DNS_QUERY
+              count: 20
+              within: 60s
+              distinct: domain
+              where:
+                domain: {suffix: .example}
+            - type: NETWORK_CONNECT
+              count: 3
+        - id: payload
+          events: []
+      relationships:
+        - type: DESCENDANT
+          parent: ancestor
+          child: dropper
+          max_depth: 4
+        - type: SPAWNED
+          parent: dropper
+          child: payload
+      sequence:
+        within: 30s
+        order_tolerance: 0s
+        steps:
+            - role: dropper
+              type: NETWORK_CONNECT
+            - role: dropper
+              type: FILE_CREATE
+              where:
+                path: {glob: /tmp/**}
+              capture: dropped
+            - role: payload
+              type: PROCESS_START
+              where:
+                exe: {eq: $dropped.path, nocase: true}
+    - name: default-depth-and-tolerance
+      severity: LOW
+      title: Defaults
+      description: A deep relationship and a sequence with everything optional left out.
+      processes:
+        - id: top
+          events: []
+        - id: bottom
+          events: []
+      relationships:
+        - type: DESCENDANT
+          parent: top
+          child: bottom
+      sequence:
+        steps:
+            - role: bottom
+              type: DNS_QUERY
+            - role: bottom
+              type: NETWORK_CONNECT

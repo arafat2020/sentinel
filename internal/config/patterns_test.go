@@ -429,8 +429,8 @@ func TestLoadPatternsReportsPredicateErrors(t *testing.T) {
 			[]string{`role "child"`, "events[0] (DNS_QUERY)", "where.remote_port", "unknown field"},
 		},
 		"where on an event type with no fields": {
-			role("          events:\n            - type: PROCESS_START\n              where:\n                path: /x\n"),
-			[]string{`role "child"`, "events[0] (PROCESS_START)", "no fields to filter on"},
+			role("          events:\n            - type: SCRIPT_EXECUTION\n              where:\n                path: /x\n"),
+			[]string{`role "child"`, "events[0] (SCRIPT_EXECUTION)", "no fields to filter on"},
 		},
 		"empty in list": {
 			role("          match:\n            name: {in: []}\n"),

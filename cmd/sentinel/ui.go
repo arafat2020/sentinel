@@ -325,11 +325,19 @@ func tabBarOffset(active, width int) int {
 //  3. If the ring wrapped (old lines evicted), redraws the TextView from the
 //     ring buffer content instead of appending — preventing unbounded RAM use.
 func (u *UI) append(tab int, color, rawLine string) {
+	u.appendPersisting(tab, color, rawLine, func() {
+		u.store.Write(tabNames[tab], rawLine)
+	})
+}
+
+// appendPersisting is append with the caller deciding how the line is
+// written to the store, which is only called when a store is wired.
+func (u *UI) appendPersisting(tab int, color, rawLine string, persist func()) {
 	ts := time.Now().Format("15:04:05")
 	formatted := fmt.Sprintf("[gray]%s[-]  [%s]%s[-]\n", ts, color, tview.Escape(rawLine))
 
 	if u.store != nil {
-		u.store.Write(tabNames[tab], rawLine)
+		persist()
 	}
 
 	u.mu.Lock()
@@ -379,6 +387,14 @@ func (u *UI) AddFile(line string) { u.append(tabFile, "orange", line) }
 
 // AddFinding logs a behavioral finding.
 func (u *UI) AddFinding(line string) { u.append(tabFindings, "red", line) }
+
+// AddFindingWithEvidence logs a finding and stores its evidence with it. The
+// Findings tab shows the same line either way.
+func (u *UI) AddFindingWithEvidence(line string, evidence core.Evidence) {
+	u.appendPersisting(tabFindings, "red", line, func() {
+		u.store.WriteFinding(line, evidence)
+	})
+}
 
 // UpdateResources hands a fresh resource snapshot to the Resources tab.
 // Goroutine-safe. Snapshots are display-only: they are neither persisted nor

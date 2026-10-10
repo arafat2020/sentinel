@@ -299,3 +299,61 @@ func TestLoadPatternSetFallsBackOnlyForUnusableFiles(t *testing.T) {
 		t.Errorf("fallback patterns = %+v, want the defaults", set.Patterns)
 	}
 }
+
+// The same guarantee for the temporal parts of the schema: DESCENDANT with
+// its depth, thresholds, and a sequence with a capture.
+func TestEditorsRoundTripTemporalFields(t *testing.T) {
+	const v3Fixture = "../../internal/config/testdata/patterns_v3.yaml"
+
+	data, err := os.ReadFile(v3Fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for name, edit := range map[string]func(path string, patterns []correlation.BehaviorPattern){
+		"TUI": func(path string, patterns []correlation.BehaviorPattern) {
+			page := NewPatternsPage(tview.NewApplication(), tview.NewPages(), path, patterns, nil)
+			page.selectPattern(0)
+			page.form.GetFormItemByLabel("Title").(*tview.InputField).SetText("Edited")
+
+			// Opening the relationship editor must not rewrite the type.
+			page.openRelationshipDetailEditor("patterns", 0, func() {})
+			page.savePattern()
+		},
+		"desktop": func(path string, patterns []correlation.BehaviorPattern) {
+			ui := &DesktopUI{patternEditIdx: -1}
+			ui.SetPatterns(path, patterns, nil)
+			ui.applyPatternEdit(0, patterns[0].Name, "Edited", patterns[0].Description, patterns[0].Severity)
+			ui.commitPatterns()
+		},
+	} {
+		path := filepath.Join(t.TempDir(), "patterns.yaml")
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		original := loadSet(t, path)
+		if len(original.Errors) != 0 || len(original.Patterns) != 2 {
+			t.Fatalf("fixture loaded as %d patterns with errors %v", len(original.Patterns), original.Errors)
+		}
+
+		edit(path, clonePatterns(original.Patterns))
+
+		want := wantAfterTitleEdit(original, "Edited")
+		got := loadSet(t, path)
+		if !reflect.DeepEqual(normalized(got.Patterns), normalized(want.Patterns)) {
+			t.Errorf("%s editor changed more than the title:\n got %+v\nwant %+v", name, got.Patterns, want.Patterns)
+		}
+
+		saved := got.Patterns[0]
+		if saved.Relationships[0].Type != correlation.RelationshipDescendant || saved.Relationships[0].MaxDepth != 4 {
+			t.Errorf("%s editor: relationship = %+v, want DESCENDANT with max_depth 4", name, saved.Relationships[0])
+		}
+		if saved.Sequence == nil || len(saved.Sequence.Steps) != 3 || saved.Sequence.Steps[1].Capture != "dropped" {
+			t.Errorf("%s editor: sequence = %+v", name, saved.Sequence)
+		}
+		if event := saved.Processes[1].Events[0]; event.Count != 20 || event.Distinct != "domain" {
+			t.Errorf("%s editor: threshold = %+v", name, event)
+		}
+	}
+}

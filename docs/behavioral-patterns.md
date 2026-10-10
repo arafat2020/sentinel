@@ -33,8 +33,27 @@ Each role is filled by a different process.
 
 ### Relationship
 
-A relationship links two roles. Only `SPAWNED` is supported: the process
-filling `parent` directly spawned the process filling `child`.
+A relationship links two roles.
+
+| Type | Meaning |
+|---|---|
+| `SPAWNED` | The process filling `parent` directly spawned the process filling `child` |
+| `DESCENDANT` | The process filling `child` is a descendant of the one filling `parent`: its child, grandchild, and so on, up to `max_depth` generations |
+
+```yaml
+relationships:
+  - { type: SPAWNED, parent: web, child: worker }
+  - { type: DESCENDANT, parent: web, child: shell, max_depth: 4 }
+```
+
+`max_depth` defaults to 5 and may be 1 to 16. `SPAWNED` is the same as
+`DESCENDANT` with `max_depth: 1`, and takes no `max_depth` of its own.
+
+A `DESCENDANT` relationship holds only if Sentinel knows every process in
+between. An intermediate process that has exited still counts for one
+correlation window after its exit; one Sentinel never saw breaks the chain,
+because nothing then proves the ancestry. Every link is checked against PID
+reuse, as for `SPAWNED`.
 
 **Every** relationship in the pattern must hold, and a role that appears in
 more than one relationship is the same process in each. In a chain `a → b → c`,
@@ -165,8 +184,8 @@ events:
 | `FILE_MODIFY` | A file was written to | `path`, `old_path` |
 | `FILE_DELETE` | A file was deleted | `path`, `old_path` |
 | `FILE_RENAME` | A file was renamed or moved | `path`, `old_path` |
-| `PROCESS_START` | A new process was created | none |
-| `PROCESS_EXIT` | A process terminated | none |
+| `PROCESS_START` | A new process was created | `name`, `exe`, `cmdline`, `user` (of the process) |
+| `PROCESS_EXIT` | A process terminated | `name`, `exe`, `cmdline`, `user` (of the process) |
 | `PERSISTENCE_CHANGE` | (planned) | none |
 | `SCRIPT_EXECUTION` | (planned) | none |
 
@@ -175,11 +194,135 @@ Field kinds decide which operators apply:
 | Kind | Fields |
 |---|---|
 | String | `name`, `exe`, `cmdline`, `user`, `protocol`, `state`, `domain`, `query_type`, `path`, `old_path` |
+| String holding a path | `exe`, `path`, `old_path` (compared after cleaning when matched against a [capture](#captures)) |
 | Address | `remote_addr`, `resolver` |
 | Numeric | `remote_port`, `local_port` |
 
 Using a field that does not belong to the event type, or `where` on an event
 type with no fields, is an error.
+
+---
+
+## Thresholds: `count`, `within`, `distinct`
+
+An event requirement can ask for more than one event.
+
+```yaml
+events:
+  - type: DNS_QUERY
+    count: 100          # at least this many; default 1
+    within: 60s         # inside a span this long; default: the whole window
+    distinct: domain    # count different values of this field, not events
+    where:
+      domain: { suffix: .example }
+```
+
+| Key | Meaning |
+|---|---|
+| `count` | How many matching events are needed (1 to 1000). With `distinct`, how many different values. |
+| `within` | The events must fall inside some span of this length. It must be more than 0 and no longer than the correlation window, and needs `count` above 1 or `distinct`. |
+| `distinct` | A `where` field of the event type. Events are counted by the number of different values it takes; an event where the field is missing is not counted. |
+
+Only events passing `where` are counted. The requirement is met when `count`
+matching events (or values) fall inside any `within`-long span that ends in the
+correlation window: the span slides, so a burst counts wherever it happens. A
+span covers events strictly less than `within` apart. Once met, the requirement
+stays met until the end of that span leaves the window.
+
+For `distinct`, each value counts from the last time it was seen: 100 distinct
+domains in 60s means 100 different domains each looked up during those 60
+seconds.
+
+Counting is exact and does not depend on how many events Sentinel retains per
+process (see [Limitations](#limitations)). Durations are written like `30s`,
+`5m` or `1m30s`.
+
+---
+
+## Sequences
+
+Event requirements say what a process did; a `sequence` says in what order
+things happened, across one or more roles.
+
+```yaml
+sequence:
+  within: 60s            # first and last step at most this far apart; default: the window
+  order_tolerance: 3s    # see "Why a tolerance"; default 3s
+  steps:
+    - { role: dropper, type: NETWORK_CONNECT }
+    - role: dropper
+      type: FILE_CREATE
+      where: { path: { glob: "/tmp/**" } }
+      capture: dropped
+    - role: payload
+      type: PROCESS_START
+      where: { exe: { eq: $dropped.path } }
+```
+
+- Each step is satisfied by **one** in-window event of its `type`, produced by
+  the process bound to its `role`, that passes its `where`.
+- The steps' events must be in timestamp order, subject to `order_tolerance`.
+- The first and last steps' events must be no more than `within` apart.
+- One event cannot satisfy two steps: two `NETWORK_CONNECT` steps need two
+  connections.
+- Every `role` must be a role of the pattern. The roles are bound as usual, so
+  the pattern's `match` blocks, event requirements and relationships all still
+  apply. A sequence may have up to 8 steps.
+
+A sequence is checked against the events Sentinel has stored for the bound
+processes, each time one of those processes does something. It does not matter
+in what order the events reached Sentinel, only what their timestamps say.
+
+### Why a tolerance
+
+An event's timestamp is the moment **Sentinel observed** it, not the moment it
+happened:
+
+| Events | How Sentinel learns of them | Timestamp is | Lag behind the action |
+|---|---|---|---|
+| `PROCESS_START`, `PROCESS_EXIT` | Polling the process table every 2 seconds | When the poll noticed the change | Up to 2 s, plus the time the poll takes |
+| `NETWORK_CONNECT`, `NETWORK_CLOSE` | Polling open connections every 2 seconds | When the poll noticed the change | Up to 2 s, plus the time the poll takes |
+| `DNS_QUERY` | Packet capture (all platforms) | When the packet was decoded | Milliseconds |
+| `FILE_*` on Linux | fanotify | When the event was read | Milliseconds |
+| `FILE_*` on Windows | Directory change notifications | When the notification arrived | Milliseconds |
+| `FILE_*` on macOS | Not active yet | — | — |
+
+So when a process connects out and then writes a file, the file event can be
+stamped up to a couple of seconds *before* the connection that preceded it.
+`order_tolerance` allows for that: an earlier step's event may be stamped later
+than a following step's, by at most the tolerance. The default of **3 seconds**
+covers the 2-second polling interval and the time a poll takes.
+
+The tolerance applies between every earlier and later step, not just
+neighbours, so it cannot be chained to walk a sequence backwards. Set
+`order_tolerance: 0s` to require strict timestamp order, which is appropriate
+when every step is a DNS or file event. A wider tolerance accepts more
+out-of-order cases: with the default, two events really 2 seconds apart in the
+"wrong" order can still satisfy a sequence.
+
+### Captures
+
+`capture: <name>` on a step names the event that satisfied it. **Later** steps
+can then compare a field of their own event with a field of that one, by
+writing `$<name>.<field>` as the value of `eq`, `in` (with exactly one
+element), `prefix`, `suffix` or `contains`:
+
+```yaml
+- role: payload
+  type: PROCESS_START
+  where: { exe: { eq: $dropped.path } }     # the program started is the file that was created
+```
+
+- `<field>` must be a `where` field of the captured event's type.
+- The two fields must be of the same kind: string with string, address with
+  address, numeric with numeric.
+- When both are paths (`exe`, `path`, `old_path`) they are compared after
+  cleaning, so `/tmp//a/../x` and `/tmp/x` are the same file.
+- `nocase: true` applies as usual, and a reference can be wrapped in `not`.
+- If either value is missing the comparison is false.
+
+`$name.field` is only a reference inside a sequence step. Anywhere else it is
+ordinary text.
 
 ---
 
@@ -363,9 +506,71 @@ counters, so an updated pattern can fire immediately.
 
 ---
 
+## Evidence
+
+Every finding records what it is based on:
+
+- **Roles:** which process filled each role of the rule.
+- **Events:** the events of the rule's sequence, in step order; then one
+  example of each event requirement; then up to 10 of the most recent events
+  counted towards each threshold. At most 50 events are kept per finding, so
+  this is a sample, not a full record.
+
+The finding line in the Findings tab, the desktop app and the headless log
+names the process in each role, for example
+`(dropper=sh(4120) payload=x(4131))`. The full evidence is stored with the
+finding in `sentinel.db`, in the `evidence` column of the `events` table, as
+JSON. Findings stored by earlier versions have no evidence.
+
+---
+
+## Limitations
+
+- **Short-lived processes can be missed.** Processes and connections are found
+  by polling every 2 seconds. A process that starts and exits between two
+  polls is never seen, and neither is a connection opened and closed between
+  two polls. A pattern cannot match on what Sentinel did not observe.
+- **Events per process are capped.** Sentinel keeps the newest 64 events of
+  each type per process inside the window. Thresholds are counted separately
+  and are not affected. A **sequence** can be missed if a process produced
+  more than 64 events of one type in the window and the event a step needed
+  was among those discarded. Sentinel counts the evaluations where that may
+  have happened.
+- **Counters are capped.** At most 4096 threshold counters exist at once, one
+  per requirement per process that could fill its role. Beyond that, further
+  processes are not counted until idle counters are released, which happens
+  one window after a counter's last matching event.
+- **Walks down the process tree are capped.** Looking for descendants of one
+  process visits at most 4096 processes. The search also works upwards from
+  each candidate descendant, which has no such limit, so this matters only
+  for a pattern whose ancestor role matches a process with a very large tree
+  below it.
+- **Ancestry needs every link.** `DESCENDANT` does not hold across a process
+  Sentinel never saw, or one that exited more than a window ago.
+- **Sequences use observation time.** See [Why a tolerance](#why-a-tolerance).
+- **`within` and `count` have upper bounds:** the correlation window, and 1000.
+- **Changing patterns resets counters.** A threshold starts counting when its
+  pattern is loaded or saved.
+
+Each cap that is hit is counted; the counts are available to the application
+through the engine's metrics.
+
+---
+
 ## Validation and errors
 
 Sentinel checks every pattern when it loads the file.
+
+**Unknown keys are errors.** A key that is not part of the schema, at any level
+of a pattern or exclusion, rejects that entry and is reported with its path, so
+a misspelling cannot silently change what a pattern means:
+
+```
+pattern[0] "webshell": processes[1].mach: unknown key (valid keys here: conditions, events, id, match)
+```
+
+An unknown key at the top level of the file (beside `patterns` and
+`exclusions`) is reported as a warning and otherwise ignored.
 
 **One bad pattern does not discard the file.** The valid patterns and
 exclusions are loaded, and each rejected entry is reported with the pattern,
@@ -396,7 +601,7 @@ and runs with the built-in default pattern.
 |---|---|
 | Unknown field | `match.colour: unknown field (valid fields: cmdline, exe, name, user)` |
 | Field not valid for the event type | `events[0] (DNS_QUERY): where.remote_port: unknown field (valid fields: domain, query_type, resolver)` |
-| `where` on an event type with no fields | `events[0] (PROCESS_START): where: PROCESS_START events have no fields to filter on` |
+| `where` on an event type with no fields | `events[0] (SCRIPT_EXECUTION): where: SCRIPT_EXECUTION events have no fields to filter on` |
 | Unknown operator | `match.name: unknown operator "like"` |
 | Operator not valid for the field | `match.name: operator "cidr" is not valid for a string field` |
 | Bad regex, glob or CIDR | `match.exe: bad glob "/tmp/[abc": unclosed character class` |
@@ -408,6 +613,19 @@ and runs with the built-in default pattern.
 | Two or more roles not all related | `role "c" is not part of any relationship` |
 | `exclude` naming an unknown role | `exclude[0]: unknown role "ghost"` |
 | Negative rate limit | `max_findings_per_window: must not be negative, got -3` |
+| Unknown key | `processes[1].mach: unknown key (valid keys here: conditions, events, id, match)` |
+| `max_depth` out of range, or on `SPAWNED` | `relationships[0]: max_depth must be between 1 and 16, got 17` |
+| Bad `count` | `events[0] (DNS_QUERY): count must be at least 1, got -2` |
+| `within` too long, or not a duration | `events[0] (DNS_QUERY): within must be more than 0 and at most the correlation window (5m0s), got 10m0s` |
+| `within` with nothing to count | `events[0] (DNS_QUERY): within needs a count above 1 or distinct: one event is always within any span` |
+| `distinct` on a field the event lacks | `events[0] (DNS_QUERY): distinct: "remote_port" is not a field of DNS_QUERY events (valid fields: domain, query_type, resolver)` |
+| Sequence step with an unknown role | `sequence: steps[0]: unknown role "ghost"` |
+| Unknown capture | `sequence: steps[1] (PROCESS_START): where.exe: reference $missing.path: unknown capture "missing"` |
+| Capture used before it is defined | `sequence: steps[0] (PROCESS_START): where.exe: reference $dropped.path: capture "dropped" is defined by steps[1], after this step` |
+| Field the captured event lacks | `sequence: steps[1] (PROCESS_START): where.exe: reference $dropped.domain: "domain" is not a field of the captured FILE_CREATE event (valid fields: old_path, path)` |
+| Reference between different kinds | `sequence: steps[1] (PROCESS_START): where.exe: reference $conn.remote_port: a string field cannot be compared with a numeric field` |
+| Duplicate capture name | `sequence: steps[1]: capture "f" is already defined by steps[0]` |
+| Reference with an operator that cannot take one | `reference $dropped.path: "regex" cannot take a captured value; use eq, in, prefix, suffix or contains` |
 
 A pattern with exactly one role and no relationships is valid and matches a
 single process. A pattern with no roles (a new draft from an editor) loads, is
@@ -558,6 +776,138 @@ exclusions:
 
 ---
 
+### 4. Download and execute
+
+A process connects out, writes a file under `/tmp`, and a child it spawns runs
+exactly that file.
+
+```yaml
+- name: download-and-execute
+  severity: CRITICAL
+  title: Downloaded file executed
+  description: >-
+    A process made a network connection, created a file under /tmp, and then
+    spawned a process running that file.
+  processes:
+    - id: dropper
+    - id: payload
+  relationships:
+    - { type: SPAWNED, parent: dropper, child: payload }
+  sequence:
+    within: 60s
+    steps:
+      - { role: dropper, type: NETWORK_CONNECT }
+      - role: dropper
+        type: FILE_CREATE
+        where: { path: { glob: "/tmp/**" } }
+        capture: dropped
+      - role: payload
+        type: PROCESS_START
+        where: { exe: { eq: $dropped.path } }
+```
+
+The capture is what makes this specific: a child running `/usr/bin/id` does not
+match, only one whose executable is the file just created. The default
+`order_tolerance` matters here, because the connection and the process start
+are polled and the file event is not.
+
+### 5. Shell at any depth below a web server, connecting to a non-standard port
+
+Example 1 with `DESCENDANT`, so that `nginx → php-fpm → sh` is caught as well
+as `nginx → sh`.
+
+```yaml
+- name: webshell-outbound-any-depth
+  severity: HIGH
+  title: Shell below a web server made an unusual outbound connection
+  description: >-
+    A shell up to four generations below a web server connected to a public
+    address on a port other than 80, 443 or 53.
+  processes:
+    - id: web
+      match:
+        name: { in: [nginx, apache2, httpd, caddy], nocase: true }
+    - id: shell
+      match:
+        name: { regex: '^(ba|da|z|k)?sh$' }
+      events:
+        - type: NETWORK_CONNECT
+          where:
+            remote_port: { not: { in: [80, 443, 53] } }
+            remote_addr:
+              not:
+                cidr: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, "::1/128", "fc00::/7"]
+  relationships:
+    - { type: DESCENDANT, parent: web, child: shell, max_depth: 4 }
+```
+
+### 6. DNS tunnelling
+
+One process looking up at least 100 different names under one parent domain
+within a minute.
+
+```yaml
+- name: dns-tunnelling
+  severity: HIGH
+  title: Many distinct subdomains of one domain queried
+  description: >-
+    A single process looked up 100 or more different names under
+    tunnel.example within 60 seconds.
+  processes:
+    - id: client
+      events:
+        - type: DNS_QUERY
+          count: 100
+          within: 60s
+          distinct: domain
+          where:
+            domain: { suffix: .tunnel.example }
+  max_findings_per_window: 5
+```
+
+The parent domain has to be named in `where`: a threshold counts distinct
+values for one process, and does not group them by parent domain on its own.
+Without the `where`, the rule becomes "100 distinct domains of any kind in a
+minute", which a browser can reach; pair that form with an exclusion.
+
+### 7. Interpreter writes to a persistence path soon after connecting out
+
+```yaml
+- name: interpreter-persistence-after-connect
+  severity: HIGH
+  title: Interpreter wrote a persistence file after a network connection
+  description: >-
+    A script interpreter created a file in a location used for persistence
+    within 30 seconds of making a network connection.
+  processes:
+    - id: interp
+      match:
+        name: { regex: '^(python[0-9.]*|perl[0-9.]*|ruby[0-9.]*|node|php[0-9.]*)$' }
+  sequence:
+    within: 30s
+    steps:
+      - role: interp
+        type: NETWORK_CONNECT
+        where:
+          remote_addr: { not: { cidr: [127.0.0.0/8, "::1/128"] } }
+      - role: interp
+        type: FILE_CREATE
+        where:
+          any_of:
+            - path: { prefix: /etc/cron }
+            - path: { glob: "/etc/systemd/system/**" }
+            - path: { glob: "/home/*/.config/autostart/**" }
+            - path: { suffix: /.bashrc }
+            - path: { glob: "/Library/LaunchDaemons/**" }
+```
+
+A step has one event type, so this covers files being created. For files being
+changed, add a second pattern with `FILE_MODIFY`. The sequence asks for *a*
+connection followed within 30 seconds by the write; it cannot ask for the
+process's first connection specifically.
+
+---
+
 ## Using the TUI pattern editor (tab 6)
 
 Press `6` (or `→` to cycle to the Patterns tab).
@@ -642,8 +992,10 @@ saved automatically.
 
 The TUI and desktop editors edit the basic parts of a pattern: name, severity,
 title, description, roles with v1 conditions and bare event types, and
-relationships. They do **not** edit `match` blocks, `where` filters, `exclude`,
-`max_findings_per_window` or the top-level `exclusions`.
+`SPAWNED` relationships. They do **not** edit `match` blocks, `where` filters,
+thresholds (`count`, `within`, `distinct`), `DESCENDANT` relationships and
+`max_depth`, `sequence`, `exclude`, `max_findings_per_window` or the top-level
+`exclusions`.
 
 A pattern or role that uses any of these is marked with `⚙` and the note
 "advanced fields — edit in YAML". Saving such a pattern from an editor keeps

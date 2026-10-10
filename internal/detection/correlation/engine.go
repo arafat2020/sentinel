@@ -83,6 +83,17 @@ type Engine struct {
 	// per-rule limit. limited is how many rules have findings held back.
 	rates   map[string]*rateState
 	limited int
+
+	// deep is true when some pattern has a relationship spanning more than
+	// one generation.
+	deep    bool
+	metrics Metrics
+
+	// thresholds lists the counting requirements of the loaded patterns by
+	// the event type they count, and counters holds their state for each
+	// process that could fill the role they belong to.
+	thresholds map[core.EventType][]thresholdRef
+	counters   map[counterKey]*thresholdCounter
 }
 
 // suppression is one emitted finding that must not be repeated yet.
@@ -107,6 +118,35 @@ type rateState struct {
 	heldBack int
 }
 
+// Metrics counts the occasions on which the engine hit one of its limits.
+// Each is a place where a match could have been missed; none of them stops
+// the engine working.
+type Metrics struct {
+	// DescendantWalksTruncated counts walks down the process tree for a
+	// DESCENDANT relationship that stopped at maxDescendantVisits processes
+	// without having visited every descendant.
+	DescendantWalksTruncated uint64
+
+	// ThresholdCounters is how many (requirement, process) counters exist
+	// now, out of maxThresholdCounters.
+	ThresholdCounters int
+	// ThresholdCountersEvicted counts counters released by the sweep after
+	// a full window with no matching event.
+	ThresholdCountersEvicted uint64
+	// ThresholdCounterCapHits counts matching events that were not counted
+	// because maxThresholdCounters counters already existed.
+	ThresholdCounterCapHits uint64
+
+	// SequencesPossiblyTruncated counts evaluations in which roles were
+	// bound but no sequence was found, and one of the bound processes had
+	// had in-window events discarded to stay within MaxEventsPerType. The
+	// sequence may have happened and been missed.
+	SequencesPossiblyTruncated uint64
+	// SequenceSearchesAborted counts sequence searches given up after
+	// maxSequenceSearch candidate events without an answer.
+	SequenceSearchesAborted uint64
+}
+
 // Option configures an Engine.
 type Option func(*Engine)
 
@@ -127,17 +167,20 @@ func NewEngine(window time.Duration, options ...Option) *Engine {
 		tree:     newTopology(),
 		orphans:  make(map[int32]map[core.ProcessIdentity]struct{}),
 		chains:   make(map[core.ProcessIdentity][]*Chain),
-		patterns: compilePatterns(DefaultPatterns()),
+		patterns: nil, // compiled below, once the window is known
 		matcher:  NewMatcher(),
 		rescan:   true,
 		emitted:  make(map[string]time.Time),
 		excluded: make(map[string]int),
 		rates:    make(map[string]*rateState),
+		counters: make(map[counterKey]*thresholdCounter),
 	}
 
 	for _, option := range options {
 		option(e)
 	}
+
+	e.load(DefaultPatterns())
 
 	return e
 }
@@ -202,6 +245,15 @@ func (e *Engine) Process(event core.Event) {
 		return
 	}
 
+	// Only when some requirement counts this type of event. The copy keeps
+	// the event itself off the heap in the usual case that none does.
+	if len(e.thresholds) > 0 {
+		if refs := e.thresholds[event.Type]; len(refs) > 0 {
+			counted := event
+			e.count(&counted, known, refs)
+		}
+	}
+
 	chains := e.chains[identity]
 
 	if len(chains) == 0 {
@@ -247,6 +299,32 @@ func (e *Engine) canonical(process core.Process) core.Process {
 	return holder.process
 }
 
+// count feeds an in-window event to each of the given counting requirements
+// that it matches, for the roles its process could fill.
+func (e *Engine) count(event *core.Event, known *record, refs []thresholdRef) {
+	identity := known.process.Identity()
+
+	for _, ref := range refs {
+		if !ref.role.suitsProcess(&known.process) || !ref.event.matches(event) {
+			continue
+		}
+
+		key := counterKey{requirement: ref.event.threshold.id, process: identity}
+
+		counter := e.counters[key]
+		if counter == nil {
+			if len(e.counters) >= maxThresholdCounters {
+				e.metrics.ThresholdCounterCapHits++
+				continue
+			}
+			counter = &thresholdCounter{}
+			e.counters[key] = counter
+		}
+
+		counter.record(ref.event.threshold, event)
+	}
+}
+
 // observe returns the record for process, creating it and working out its
 // place among the known processes the first time it is seen.
 func (e *Engine) observe(process core.Process, now time.Time) *record {
@@ -268,6 +346,35 @@ func (e *Engine) observe(process core.Process, now time.Time) *record {
 	e.touch(identity)
 
 	return added
+}
+
+// maxSubtreeTouch is the largest subtree that is marked process by process
+// when it gains an ancestor. Beyond it, everything is re-evaluated once
+// instead.
+const maxSubtreeTouch = 256
+
+// relinked records that an already-known process has a new parent. With only
+// direct relationships that concerns the process and the parent, and the
+// parent is marked as changed by whoever linked it. With relationships that
+// span generations it also concerns everything below the process, which now
+// has new ancestors although nothing about it changed.
+func (e *Engine) relinked(child core.ProcessIdentity) {
+	e.touch(child)
+
+	if !e.deep || e.rescan {
+		return
+	}
+
+	marked := 0
+	walkDescendants(e.tree, child, MaxDepthLimit, nil, func(identity core.ProcessIdentity) bool {
+		if marked >= maxSubtreeTouch {
+			e.rescan = true
+			return false
+		}
+		marked++
+		e.touch(identity)
+		return true
+	})
 }
 
 // touch marks a process as changed since the last evaluation.
@@ -358,6 +465,7 @@ func (e *Engine) reattributeChildren(previous, current *record) {
 
 	for _, childID := range moved {
 		e.tree.link(current.process.Identity(), childID)
+		e.relinked(childID)
 	}
 }
 
@@ -374,6 +482,7 @@ func (e *Engine) inheritChildren(previous, current *record) {
 
 	for _, childID := range moved {
 		e.tree.link(current.process.Identity(), childID)
+		e.relinked(childID)
 	}
 }
 
@@ -417,6 +526,7 @@ func (e *Engine) adoptOrphans(parent *record) {
 		}
 
 		e.tree.link(parent.process.Identity(), childID)
+		e.relinked(childID)
 		delete(waiting, childID)
 	}
 
@@ -513,6 +623,15 @@ func (e *Engine) sweep(now time.Time) {
 	for identity, known := range e.records {
 		if expired(known, cutoff) {
 			e.evict(identity, known)
+		}
+	}
+
+	// A counter with nothing in the window can no longer be met, and holds
+	// nothing a later event would build on.
+	for key, counter := range e.counters {
+		if !counter.newest.After(cutoff) {
+			delete(e.counters, key)
+			e.metrics.ThresholdCountersEvicted++
 		}
 	}
 }
@@ -694,7 +813,7 @@ func (e *Engine) DetectBehaviors() []core.Finding {
 				continue
 			}
 
-			findings = append(findings, e.finding(pattern.BehaviorPattern, match, now))
+			findings = append(findings, e.finding(pattern, match, now))
 		}
 	}
 
@@ -793,11 +912,16 @@ func (e *Engine) rateLimitSummaries(now time.Time) []core.Finding {
 	return findings
 }
 
-func (e *Engine) finding(pattern BehaviorPattern, match Match, now time.Time) core.Finding {
+func (e *Engine) finding(pattern *compiledPattern, match Match, now time.Time) core.Finding {
 	processes := append([]core.Process(nil), match.Processes...)
 
 	// The role listed last is the one the pattern leads up to.
 	subject := processes[len(processes)-1]
+
+	roles := make(map[string]core.Process, len(processes))
+	for i, process := range processes {
+		roles[pattern.Processes[i].ID] = process
+	}
 
 	return core.Finding{
 		ID:          e.nextFindingID(now),
@@ -809,8 +933,77 @@ func (e *Engine) finding(pattern BehaviorPattern, match Match, now time.Time) co
 		Evidence: core.Evidence{
 			Process:   &subject,
 			Processes: processes,
+			Roles:     roles,
+			Events:    e.evidenceEvents(pattern, match, now),
 		},
 	}
+}
+
+// MaxEvidenceEvents is the most events a finding carries as evidence.
+const MaxEvidenceEvents = 50
+
+// evidenceEvents gathers the events behind a match: the sequence's events in
+// step order, then one example of each event requirement, then the most
+// recent events counted towards each threshold.
+func (e *Engine) evidenceEvents(pattern *compiledPattern, match Match, now time.Time) []core.Event {
+	cutoff := now.Add(-e.window)
+	events := append([]core.Event(nil), match.Events...)
+
+	add := func(event core.Event) bool {
+		if len(events) >= MaxEvidenceEvents {
+			return false
+		}
+		events = append(events, event)
+		return true
+	}
+
+	// One example of each ordinary requirement.
+	for r := range pattern.roles {
+		role := &pattern.roles[r]
+		identity := match.Processes[r].Identity()
+
+		for i := range role.events {
+			if example, ok := e.exampleEvent(&role.events[i], identity, cutoff); ok && !add(example) {
+				return events
+			}
+		}
+	}
+
+	// The latest events counted towards each threshold.
+	for r := range pattern.roles {
+		role := &pattern.roles[r]
+		identity := match.Processes[r].Identity()
+
+		for i := range role.thresholds {
+			key := counterKey{requirement: role.thresholds[i].threshold.id, process: identity}
+			counter := e.counters[key]
+			if counter == nil {
+				continue
+			}
+			for _, recent := range counter.recentEvents() {
+				if !add(recent) {
+					return events
+				}
+			}
+		}
+	}
+
+	return events
+}
+
+// exampleEvent returns the earliest in-window event of a process that meets
+// an event requirement.
+func (e *Engine) exampleEvent(requirement *compiledEvent, identity core.ProcessIdentity, cutoff time.Time) (core.Event, bool) {
+	for _, chain := range e.chains[identity] {
+		events := chain.EventsAfter(cutoff)
+		for i := range events {
+			if requirement.matches(&events[i]) {
+				return events[i], true
+			}
+		}
+	}
+
+	return core.Event{}, false
 }
 
 // suppress records that a finding was emitted now.
@@ -869,7 +1062,7 @@ func (e *Engine) SetPatterns(patterns []BehaviorPattern) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	e.patterns = compilePatterns(patterns)
+	e.load(patterns)
 	e.emitted = make(map[string]time.Time)
 	e.suppressed = nil
 	e.rates = make(map[string]*rateState)
@@ -877,14 +1070,41 @@ func (e *Engine) SetPatterns(patterns []BehaviorPattern) {
 	e.rescan = true
 }
 
-func compilePatterns(patterns []BehaviorPattern) []*compiledPattern {
-	compiled := make([]*compiledPattern, len(patterns))
+// load compiles patterns for this engine and rebuilds what is derived from
+// them. Counters belong to the requirements of the previous patterns and
+// start again: a threshold needs its events to arrive after it was loaded.
+func (e *Engine) load(patterns []BehaviorPattern) {
+	e.patterns = make([]*compiledPattern, len(patterns))
+	e.deep = false
+	e.thresholds = make(map[core.EventType][]thresholdRef)
+	e.counters = make(map[counterKey]*thresholdCounter)
+
+	next := 0
+
 	for i, pattern := range patterns {
 		// An invalid pattern compiles to one that never matches.
-		compiled[i], _ = compilePattern(pattern)
-	}
+		compiled, _ := compilePattern(pattern, e.window)
+		e.patterns[i] = compiled
+		e.deep = e.deep || compiled.deep
 
-	return compiled
+		if !compiled.matchable {
+			continue
+		}
+
+		for r := range compiled.roles {
+			role := &compiled.roles[r]
+			for t := range role.thresholds {
+				requirement := &role.thresholds[t]
+				requirement.threshold.id = next
+				next++
+
+				e.thresholds[requirement.eventType] = append(
+					e.thresholds[requirement.eventType],
+					thresholdRef{role: role, event: requirement},
+				)
+			}
+		}
+	}
 }
 
 // SetExclusions replaces the exclusions applied to findings. Exclusions that
@@ -912,6 +1132,17 @@ func (e *Engine) SetExclusions(exclusions []Exclusion) error {
 	e.exclusions = compiled
 
 	return firstErr
+}
+
+// Metrics returns the engine's limit counters.
+func (e *Engine) Metrics() Metrics {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	metrics := e.metrics
+	metrics.ThresholdCounters = len(e.counters)
+
+	return metrics
 }
 
 // ExcludedFindings returns, for each rule, how many findings exclusions have
@@ -975,6 +1206,20 @@ func (w engineWorld) eachChild(parent core.ProcessIdentity, visit func(core.Proc
 	}
 }
 
+func (w engineWorld) eachDescendant(parent core.ProcessIdentity, maxDepth int, visit func(core.ProcessIdentity) bool) {
+	// A tombstone whose window has passed is no longer evidence of
+	// ancestry, even before the sweep removes it; the walk up from a
+	// descendant stops at one, so the walk down must too.
+	known := func(identity core.ProcessIdentity) bool {
+		_, ok := w.visible(identity)
+		return ok
+	}
+
+	if walkDescendants(w.engine.tree, parent, maxDepth, known, visit) {
+		w.engine.metrics.DescendantWalksTruncated++
+	}
+}
+
 func (w engineWorld) eachRelationship(visit func(parent, child core.ProcessIdentity) bool) {
 	for child, parent := range w.engine.tree.parent {
 		if !visit(parent, child) {
@@ -993,4 +1238,26 @@ func (w engineWorld) eachProcess(visit func(core.ProcessIdentity) bool) {
 
 func (w engineWorld) chainsOf(identity core.ProcessIdentity) []*Chain {
 	return w.engine.chains[identity]
+}
+
+func (w engineWorld) sequenceNotFound(processes []core.ProcessIdentity, searchExhausted bool) {
+	if searchExhausted {
+		w.engine.metrics.SequenceSearchesAborted++
+	}
+
+	for _, identity := range processes {
+		for _, chain := range w.engine.chains[identity] {
+			if chain.DroppedAfter(w.cutoff) {
+				w.engine.metrics.SequencesPossiblyTruncated++
+				return
+			}
+		}
+	}
+}
+
+func (w engineWorld) thresholdMet(requirement *compiledEvent, process core.ProcessIdentity) bool {
+	counter := w.engine.counters[counterKey{requirement: requirement.threshold.id, process: process}]
+
+	// Met for as long as the span that met it ends inside the window.
+	return counter != nil && counter.metAt.After(w.cutoff)
 }

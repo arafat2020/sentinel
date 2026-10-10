@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -50,8 +51,11 @@ type ConditionDef struct {
 
 // EventDef is the YAML representation of an EventPattern.
 type EventDef struct {
-	Type  string    `yaml:"type"`
-	Where yaml.Node `yaml:"where,omitempty"`
+	Type     string    `yaml:"type"`
+	Count    int       `yaml:"count,omitempty"`
+	Within   string    `yaml:"within,omitempty"`
+	Distinct string    `yaml:"distinct,omitempty"`
+	Where    yaml.Node `yaml:"where,omitempty"`
 }
 
 // RelationshipDef is the YAML representation of a RelationshipPattern.
@@ -381,7 +385,17 @@ func convertProcessPattern(def ProcessPatternDef) (correlation.ProcessPattern, e
 		if err != nil {
 			return correlation.ProcessPattern{}, fmt.Errorf("events[%d] (%s): %w", i, ed.Type, err)
 		}
-		events = append(events, correlation.EventPattern{Type: core.EventType(ed.Type), Where: where})
+		within, err := parseDuration(ed.Within)
+		if err != nil {
+			return correlation.ProcessPattern{}, fmt.Errorf("events[%d] (%s): within: %w", i, ed.Type, err)
+		}
+		events = append(events, correlation.EventPattern{
+			Type:     core.EventType(ed.Type),
+			Where:    where,
+			Count:    ed.Count,
+			Within:   within,
+			Distinct: ed.Distinct,
+		})
 	}
 
 	return correlation.ProcessPattern{
@@ -390,6 +404,42 @@ func convertProcessPattern(def ProcessPatternDef) (correlation.ProcessPattern, e
 		Match:      match,
 		Events:     events,
 	}, nil
+}
+
+// parseDuration reads a span such as "60s" or "2m30s". An empty string is
+// no span at all.
+func parseDuration(text string) (time.Duration, error) {
+	if text == "" {
+		return 0, nil
+	}
+
+	d, err := time.ParseDuration(text)
+	if err != nil {
+		return 0, fmt.Errorf("%q is not a duration (write it like 30s, 5m or 1m30s)", text)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("must be more than 0, got %s", text)
+	}
+
+	return d, nil
+}
+
+// formatDuration writes a span the way a person would: 60s and 5m, not
+// 1m0s and 5m0s. Whatever it writes, parseDuration reads back as the same
+// span.
+func formatDuration(d time.Duration) string {
+	switch {
+	case d == 0:
+		return ""
+	case d%time.Hour == 0:
+		return fmt.Sprintf("%dh", d/time.Hour)
+	case d%time.Minute == 0 && d >= 2*time.Minute:
+		return fmt.Sprintf("%dm", d/time.Minute)
+	case d%time.Second == 0 && d < 2*time.Minute:
+		return fmt.Sprintf("%ds", d/time.Second)
+	default:
+		return d.String()
+	}
 }
 
 func convertRelationship(def RelationshipDef) (correlation.RelationshipPattern, error) {
@@ -423,7 +473,13 @@ func unconvertPattern(p correlation.BehaviorPattern) PatternDef {
 
 		def.Events = make([]EventDef, len(pp.Events))
 		for j, e := range pp.Events {
-			def.Events[j] = EventDef{Type: string(e.Type), Where: encodeMatchBlock(e.Where)}
+			def.Events[j] = EventDef{
+				Type:     string(e.Type),
+				Count:    e.Count,
+				Within:   formatDuration(e.Within),
+				Distinct: e.Distinct,
+				Where:    encodeMatchBlock(e.Where),
+			}
 		}
 
 		procs[i] = def

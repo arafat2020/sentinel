@@ -2,6 +2,7 @@ package correlation
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/arafat2020/sentinel/internal/core"
 )
@@ -38,7 +39,10 @@ type compiledRole struct {
 	accepts []processPredicate
 	// rejects are the pattern's exclusions for this role; none may hold.
 	rejects []processPredicate
-	events  []compiledEvent
+	// events are the requirements met by a single matching event.
+	events []compiledEvent
+	// thresholds are the requirements that need counting.
+	thresholds []compiledEvent
 }
 
 // compiledEvent is one event requirement: an event of the type that passes
@@ -46,6 +50,24 @@ type compiledRole struct {
 type compiledEvent struct {
 	eventType core.EventType
 	where     eventPredicate // nil accepts any event of the type
+	// threshold is set for a requirement that needs counting.
+	threshold *thresholdSpec
+}
+
+// matches reports whether one event counts towards the requirement.
+func (e *compiledEvent) matches(event *core.Event) bool {
+	return event.Type == e.eventType && (e.where == nil || e.where(event))
+}
+
+// thresholdsMetBy reports whether events, which must be in time order, meet
+// every counting requirement of the role, by replaying them.
+func (r *compiledRole) thresholdsMetBy(events []core.Event) bool {
+	for i := range r.thresholds {
+		if r.thresholds[i].replay(events).metAt.IsZero() {
+			return false
+		}
+	}
+	return true
 }
 
 // suitsProcess reports whether the process itself, leaving its events aside,
@@ -92,7 +114,10 @@ func (r *compiledRole) satisfiedBy(events []core.Event) bool {
 
 // compilePattern prepares a pattern for matching. The returned pattern is
 // always usable: when err is non-nil it simply never matches.
-func compilePattern(pattern BehaviorPattern) (*compiledPattern, error) {
+//
+// window is the correlation window of the engine the pattern is for; spans
+// in the pattern default to it and may not exceed it.
+func compilePattern(pattern BehaviorPattern, window time.Duration) (*compiledPattern, error) {
 	compiled := &compiledPattern{
 		BehaviorPattern: pattern,
 		maxFindings:     pattern.MaxFindingsPerWindow,
@@ -111,7 +136,7 @@ func compilePattern(pattern BehaviorPattern) (*compiledPattern, error) {
 	for i, role := range pattern.Processes {
 		indexes[role.ID] = i
 
-		compiledRole, err := compileRole(role)
+		compiledRole, err := compileRole(role, window)
 		if err != nil {
 			return compiled, fmt.Errorf("role %q: %w", role.ID, err)
 		}
@@ -153,7 +178,7 @@ func compilePattern(pattern BehaviorPattern) (*compiledPattern, error) {
 
 // compileRole prepares one role's conditions, match block and event
 // requirements.
-func compileRole(role ProcessPattern) (*compiledRole, error) {
+func compileRole(role ProcessPattern, window time.Duration) (*compiledRole, error) {
 	compiled := &compiledRole{}
 
 	for _, condition := range role.Conditions {
@@ -183,10 +208,73 @@ func compileRole(role ProcessPattern) (*compiledRole, error) {
 			required.where = where
 		}
 
-		compiled.events = append(compiled.events, required)
+		if !event.isThreshold() {
+			if event.Count < 0 {
+				return nil, fmt.Errorf("events[%d] (%s): count must be at least 1, got %d", i, event.Type, event.Count)
+			}
+			compiled.events = append(compiled.events, required)
+			continue
+		}
+
+		threshold, err := compileThreshold(event, window)
+		if err != nil {
+			return nil, fmt.Errorf("events[%d] (%s): %w", i, event.Type, err)
+		}
+		required.threshold = threshold
+		compiled.thresholds = append(compiled.thresholds, required)
 	}
 
 	return compiled, nil
+}
+
+// compileThreshold checks and prepares the counting part of an event
+// requirement.
+func compileThreshold(event EventPattern, window time.Duration) (*thresholdSpec, error) {
+	spec := &thresholdSpec{count: event.Count, within: event.Within}
+
+	if spec.count == 0 {
+		spec.count = 1
+	}
+	if spec.count < 1 {
+		return nil, fmt.Errorf("count must be at least 1, got %d", event.Count)
+	}
+	if spec.count > MaxThresholdCount {
+		return nil, fmt.Errorf("count must be at most %d, got %d", MaxThresholdCount, event.Count)
+	}
+
+	if event.Within < 0 || event.Within > window {
+		return nil, fmt.Errorf("within must be more than 0 and at most the correlation window (%s), got %s", window, event.Within)
+	}
+	if event.Within != 0 && spec.count == 1 && event.Distinct == "" {
+		return nil, fmt.Errorf("within needs a count above 1 or distinct: one event is always within any span")
+	}
+	if spec.within == 0 {
+		spec.within = window
+	}
+
+	if event.Distinct != "" {
+		f, known := eventFields(event.Type)[event.Distinct]
+		if !known {
+			return nil, fmt.Errorf("distinct: %q is not a field of %s events (valid fields: %s)",
+				event.Distinct, event.Type, fieldNames(eventFields(event.Type)))
+		}
+
+		if f.kind == kindNumber {
+			read := f.number
+			spec.distinct = func(e *core.Event) (distinctValue, bool) {
+				number, ok := read(e)
+				return distinctValue{number: number}, ok
+			}
+		} else {
+			read := f.text
+			spec.distinct = func(e *core.Event) (distinctValue, bool) {
+				text := read(e)
+				return distinctValue{text: text}, text != ""
+			}
+		}
+	}
+
+	return spec, nil
 }
 
 // compileCondition turns an original-schema condition into the equality

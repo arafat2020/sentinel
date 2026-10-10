@@ -2,9 +2,15 @@ package correlation
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/arafat2020/sentinel/internal/core"
 )
+
+// DefaultWindow is the correlation window Sentinel runs with. Patterns are
+// validated against it: a span longer than the window could never be
+// observed.
+const DefaultWindow = 5 * time.Minute
 
 // DefaultMaxFindingsPerWindow is how many findings a rule may produce in one
 // window when the pattern does not set its own limit.
@@ -92,7 +98,13 @@ func (p BehaviorPattern) UsesAdvancedFields() bool {
 // relationship; otherwise the roles would be unrelated and any combination
 // of processes would do. A pattern with no roles is valid, and never matches.
 func (p BehaviorPattern) Validate() error {
-	_, err := compilePattern(p)
+	return p.ValidateFor(DefaultWindow)
+}
+
+// ValidateFor is Validate for an engine with the given correlation window,
+// which bounds the spans a pattern may ask for.
+func (p BehaviorPattern) ValidateFor(window time.Duration) error {
+	_, err := compilePattern(p, window)
 	return err
 }
 
@@ -179,7 +191,7 @@ func (p ProcessPattern) UsesAdvancedFields() bool {
 		return true
 	}
 	for _, event := range p.Events {
-		if event.Where != nil {
+		if event.Where != nil || event.isThreshold() {
 			return true
 		}
 	}
@@ -188,9 +200,28 @@ func (p ProcessPattern) UsesAdvancedFields() bool {
 
 // EventPattern requires at least one in-window event of Type that satisfies
 // Where. A nil Where accepts any event of the type.
+//
+// With Count, Within or Distinct set the requirement is a threshold: the
+// process must have produced Count events satisfying Where (or events with
+// Count distinct values of the Distinct field) inside some span of length
+// Within that ends in the correlation window.
 type EventPattern struct {
 	Type  core.EventType
 	Where *MatchBlock
+	// Count is how many events are required. Zero means one.
+	Count int
+	// Within is the length of the span the events must fall in. Zero means
+	// the whole correlation window.
+	Within time.Duration
+	// Distinct names a field of the event; events are then counted by the
+	// number of different values it takes.
+	Distinct string
+}
+
+// isThreshold reports whether the requirement needs counting rather than a
+// single matching event.
+func (e EventPattern) isThreshold() bool {
+	return e.Count > 1 || e.Within != 0 || e.Distinct != ""
 }
 
 type RelationshipPattern struct {

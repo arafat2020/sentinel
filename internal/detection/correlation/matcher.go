@@ -27,7 +27,7 @@ func (m *Matcher) MatchProcess(
 	pattern ProcessPattern,
 	process core.Process,
 ) bool {
-	role, err := compileRole(pattern)
+	role, err := compileRole(pattern, DefaultWindow)
 	if err != nil {
 		return false
 	}
@@ -42,12 +42,12 @@ func (m *Matcher) MatchEvents(
 	pattern ProcessPattern,
 	chain *Chain,
 ) bool {
-	role, err := compileRole(pattern)
+	role, err := compileRole(pattern, DefaultWindow)
 	if err != nil || chain == nil {
 		return false
 	}
 
-	return role.satisfiedBy(chain.Events())
+	return role.satisfiedBy(chain.Events()) && role.thresholdsMetBy(chain.Events())
 }
 
 // MatchEventsAfter is MatchEvents restricted to events whose timestamp is
@@ -57,12 +57,14 @@ func (m *Matcher) MatchEventsAfter(
 	chain *Chain,
 	cutoff time.Time,
 ) bool {
-	role, err := compileRole(pattern)
+	role, err := compileRole(pattern, DefaultWindow)
 	if err != nil || chain == nil {
 		return false
 	}
 
-	return role.satisfiedBy(chain.EventsAfter(cutoff))
+	events := chain.EventsAfter(cutoff)
+
+	return role.satisfiedBy(events) && role.thresholdsMetBy(events)
 }
 
 func (m *Matcher) MatchRelationship(
@@ -105,9 +107,9 @@ func (m *Matcher) FindMatches(
 	relationships []ProcessRelationship,
 	chains map[core.ProcessIdentity][]*Chain,
 ) []Match {
-	compiled, _ := compilePattern(pattern)
+	compiled, _ := compilePattern(pattern, DefaultWindow)
 
-	return m.find(compiled, newSliceWorld(relationships, chains), (*Chain).Events, nil)
+	return m.find(compiled, newSliceWorld(relationships, chains, (*Chain).Events), (*Chain).Events, nil)
 }
 
 // FindMatchesAfter is FindMatches restricted to events whose timestamp is
@@ -118,14 +120,10 @@ func (m *Matcher) FindMatchesAfter(
 	chains map[core.ProcessIdentity][]*Chain,
 	cutoff time.Time,
 ) []Match {
-	compiled, _ := compilePattern(pattern)
+	compiled, _ := compilePattern(pattern, DefaultWindow)
+	window := func(chain *Chain) []core.Event { return chain.EventsAfter(cutoff) }
 
-	return m.find(
-		compiled,
-		newSliceWorld(relationships, chains),
-		func(chain *Chain) []core.Event { return chain.EventsAfter(cutoff) },
-		nil,
-	)
+	return m.find(compiled, newSliceWorld(relationships, chains, window), window, nil)
 }
 
 // MatchAnyChain reports whether any one chain satisfies the pattern's event
@@ -135,9 +133,15 @@ func (m *Matcher) MatchAnyChain(
 	pattern ProcessPattern,
 	chains []*Chain,
 ) bool {
-	role, err := compileRole(pattern)
+	role, err := compileRole(pattern, DefaultWindow)
 	if err != nil {
 		return false
+	}
+
+	for _, chain := range chains {
+		if !role.thresholdsMetBy(chain.Events()) {
+			return false
+		}
 	}
 
 	return anyChainSatisfies(role, chains, (*Chain).Events)
@@ -181,6 +185,9 @@ type world interface {
 	eachRelationship(visit func(parent, child core.ProcessIdentity) bool)
 	eachProcess(visit func(core.ProcessIdentity) bool)
 	chainsOf(core.ProcessIdentity) []*Chain
+	// thresholdMet reports whether the process currently meets a counting
+	// requirement.
+	thresholdMet(requirement *compiledEvent, process core.ProcessIdentity) bool
 }
 
 // find searches w for ways of binding the pattern's roles.
@@ -418,8 +425,18 @@ func (s *search) suits(role int, identity core.ProcessIdentity) bool {
 
 	compiled := &s.pattern.roles[role]
 
-	return compiled.suitsProcess(process) &&
-		anyChainSatisfies(compiled, s.world.chainsOf(identity), s.window)
+	if !compiled.suitsProcess(process) ||
+		!anyChainSatisfies(compiled, s.world.chainsOf(identity), s.window) {
+		return false
+	}
+
+	for i := range compiled.thresholds {
+		if !s.world.thresholdMet(&compiled.thresholds[i], identity) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // emit records the current bindings as a match.
@@ -443,16 +460,20 @@ type sliceWorld struct {
 	processes map[core.ProcessIdentity]*core.Process
 	topology  *topology
 	chains    map[core.ProcessIdentity][]*Chain
+	// window selects the events of a chain that count.
+	window func(*Chain) []core.Event
 }
 
 func newSliceWorld(
 	relationships []ProcessRelationship,
 	chains map[core.ProcessIdentity][]*Chain,
+	window func(*Chain) []core.Event,
 ) *sliceWorld {
 	w := &sliceWorld{
 		processes: make(map[core.ProcessIdentity]*core.Process),
 		topology:  newTopology(),
 		chains:    chains,
+		window:    window,
 	}
 
 	for _, relationship := range relationships {
@@ -510,4 +531,15 @@ func (w *sliceWorld) eachProcess(visit func(core.ProcessIdentity) bool) {
 
 func (w *sliceWorld) chainsOf(identity core.ProcessIdentity) []*Chain {
 	return w.chains[identity]
+}
+
+// thresholdMet counts over the events the chains happen to hold: there is no
+// engine here keeping counters as events arrive.
+func (w *sliceWorld) thresholdMet(requirement *compiledEvent, process core.ProcessIdentity) bool {
+	for _, chain := range w.chains[process] {
+		if !requirement.replay(w.window(chain)).metAt.IsZero() {
+			return true
+		}
+	}
+	return false
 }

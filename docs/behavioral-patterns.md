@@ -20,7 +20,9 @@ window (default: 5 minutes).
 Each pattern defines one or more **process roles** (e.g. `parent`, `child`).
 A role is an abstract slot that matches a real running process if all of its
 conditions are satisfied and all of its required event types have been seen in
-that process's event chain.
+that process's event chain **inside the correlation window** (see
+[Correlation window](#correlation-window)). Each role is filled by a different
+process.
 
 ### Condition
 
@@ -106,8 +108,10 @@ is currently no OR within a role — to express OR, define two separate patterns
 
 ### Multiple event requirements on one role
 
-All required event types must appear in the process's event chain (AND logic).
-The events do not need to appear in any particular order.
+All required event types must appear in the process's event chain inside the
+correlation window (AND logic). The events do not need to appear in any
+particular order. A role with no event requirements places no demand on
+activity.
 
 ### Multiple relationships
 
@@ -133,6 +137,30 @@ relationships:
 ```
 
 This fires when `a` spawns `b` which in turn spawns `c`.
+
+**Every** relationship in the pattern must hold, and a role that appears in
+more than one relationship is the same process in each: here `b` must be one
+process that is both a child of `a` and the parent of `c`. `a` spawning one
+python while a different python spawns bash does not match.
+
+### Structural rules
+
+Sentinel refuses to load a patterns file containing a pattern that breaks any
+of these rules, and reports which pattern and why:
+
+- Role IDs must be unique within a pattern.
+- A relationship may only reference role IDs defined in the same pattern.
+- A pattern with two or more roles must relate them: every role has to appear
+  in at least one relationship. Unrelated roles would match any combination of
+  processes.
+- A role cannot be its own parent.
+
+A pattern with exactly one role and no relationships is valid and matches a
+single process. A pattern with no roles yet (a new draft from the editor) loads
+but never fires.
+
+If the file fails to load at startup, Sentinel prints the error and runs with
+the built-in default pattern; the file itself is left untouched.
 
 ---
 
@@ -218,11 +246,58 @@ saved automatically.
 
 ---
 
+## Correlation window
+
+The engine has a single correlation window, 5 minutes in the shipped
+configuration. It is not configurable per pattern.
+
+An event is **in the window** if it is strictly less than one window old. A
+pattern matches only if every event it requires, for every role, is in the
+window at the same moment. Consequences:
+
+- All events contributing to a finding lie within one window of each other.
+- An event older than the window can never contribute to a finding, however
+  long Sentinel has been running.
+
+Timestamps are handled defensively: an event with no timestamp, or one dated
+in the future, is treated as happening when Sentinel received it; an event
+that is already a full window old when it arrives is ignored; and if the system
+clock steps backwards, expired events are not revived.
+
+### Processes and relationships
+
+- Processes are identified by PID **and** start time. When a PID is reused, the
+  new process does not inherit the previous one's events or children.
+- Sentinel learns about a process from any event that mentions it, and at
+  startup from a list of the processes already running. A process that was
+  running before Sentinel started can therefore be recognised as a parent.
+- The holder of a child's parent PID is accepted as its parent only if it
+  started no later than the child and had not exited before the child started.
+- An exited process stays available for one window after it exits, so a
+  pattern through a parent that has already exited can still match. After
+  that it is forgotten along with its events and relationships.
+
+Memory is bounded: only in-window events are kept, at most 64 events of each
+type per process (the newest are kept).
+
+---
+
 ## Suppression / deduplication
 
-Once a pattern fires, the same pattern will not fire again until one full
-**correlation window** (5 minutes by default) has elapsed. This prevents a
-single sustained behaviour from flooding the Findings tab.
+A finding is identified by its rule **and the set of processes involved**.
+Once it has been reported, the same finding is not reported again until one
+full **correlation window** (5 minutes by default) has elapsed. This prevents
+a single sustained behaviour from flooding the Findings tab.
+
+A different set of processes matching the same rule is a different finding and
+is reported straight away. A broad pattern (few conditions) can therefore
+produce one finding per matching set of processes.
+
+After the window, a finding is reported again only if the behaviour is still
+going on or has happened again.
+
+Each finding records the processes that matched, in the order the pattern
+lists its roles.
 
 Editing and saving a pattern via the TUI clears the suppression cache, so the
 updated pattern can fire immediately.

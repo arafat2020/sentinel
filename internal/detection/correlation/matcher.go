@@ -160,12 +160,13 @@ func anyChainSatisfies(
 	// Nothing is required, so there is nothing a chain could fail to
 	// provide. Without this a process would stop matching as soon as its
 	// last event aged out of the window.
-	if len(role.events) == 0 {
+	if len(role.events) == 0 && len(role.implied) == 0 {
 		return true
 	}
 
 	for _, chain := range chains {
-		if role.satisfiedBy(window(chain)) {
+		events := window(chain)
+		if role.satisfiedBy(events) && role.impliedBy(events) {
 			return true
 		}
 	}
@@ -188,6 +189,14 @@ type world interface {
 	eachRelationship(visit func(parent, child core.ProcessIdentity) bool)
 	eachProcess(visit func(core.ProcessIdentity) bool)
 	chainsOf(core.ProcessIdentity) []*Chain
+	// childCount is how many children a process has, visible or not.
+	childCount(parent core.ProcessIdentity) int
+	// having returns the processes that may have had an event of the given
+	// type: every process that has one in the window is in it, and others
+	// may be. ok is false when the world keeps no such record.
+	having(eventType core.EventType) (processes map[core.ProcessIdentity]struct{}, ok bool)
+	// searched is told how many candidate bindings a search considered.
+	searched(candidates uint64)
 	// thresholdMet reports whether the process currently meets a counting
 	// requirement.
 	thresholdMet(requirement *compiledEvent, process core.ProcessIdentity) bool
@@ -232,6 +241,8 @@ func (m *Matcher) find(
 		s.searchAround(seeds)
 	}
 
+	w.searched(s.tried)
+
 	return s.matches
 }
 
@@ -249,6 +260,8 @@ type search struct {
 	done    []bool // relationship patterns already satisfied
 
 	matches []Match
+	// tried counts the candidate bindings considered.
+	tried uint64
 }
 
 func (s *search) searchEverything() {
@@ -296,14 +309,30 @@ func (s *search) satisfy() {
 		}
 
 	case s.isBound[link.parent]:
+		parent := s.bound[link.parent]
+
+		// A parent can have a great many children, of which the role
+		// wants the few that did something in particular. When there are
+		// fewer processes that did that thing than there are children to
+		// look through, start from those and keep the ones this parent is
+		// above.
+		if candidates, ok := s.candidatesBelow(link); ok {
+			for identity := range candidates {
+				if s.isAncestor(parent, identity, link.depth) {
+					s.try(link.child, identity)
+				}
+			}
+			break
+		}
+
 		visit := func(identity core.ProcessIdentity) bool {
 			s.try(link.child, identity)
 			return true
 		}
 		if link.depth == 1 {
-			s.world.eachChild(s.bound[link.parent], visit)
+			s.world.eachChild(parent, visit)
 		} else {
-			s.world.eachDescendant(s.bound[link.parent], link.depth, visit)
+			s.world.eachDescendant(parent, link.depth, visit)
 		}
 
 	case s.isBound[link.child]:
@@ -334,6 +363,41 @@ func (s *search) satisfy() {
 			return true
 		})
 	}
+}
+
+// candidatesBelow returns a set of processes that includes everything below
+// the link's bound parent that could fill its child role, when that set is a
+// better place to look than the parent's children.
+func (s *search) candidatesBelow(link roleLink) (map[core.ProcessIdentity]struct{}, bool) {
+	needs := s.pattern.roles[link.child].needs
+	if len(needs) == 0 {
+		return nil, false
+	}
+
+	var smallest map[core.ProcessIdentity]struct{}
+	for i, eventType := range needs {
+		having, ok := s.world.having(eventType)
+		if !ok {
+			return nil, false
+		}
+		if i == 0 || len(having) < len(smallest) {
+			smallest = having
+		}
+	}
+
+	// Going through the children costs one step each. Going through the
+	// candidates costs a walk up the tree each, of at most depth steps.
+	limit := s.world.childCount(s.bound[link.parent])
+	if link.depth > 1 {
+		// The descendants are not counted anywhere; a walk through them
+		// stops at maxDescendantVisits.
+		limit = maxDescendantVisits
+	}
+	if len(smallest)*link.depth >= limit {
+		return nil, false
+	}
+
+	return smallest, true
 }
 
 // eachAncestor visits the ancestors of a process, nearest first, up to
@@ -402,6 +466,8 @@ func (s *search) try(role int, identity core.ProcessIdentity) {
 // bind assigns identity to role if the process suits the role and is not
 // already bound to another one.
 func (s *search) bind(role int, identity core.ProcessIdentity) bool {
+	s.tried++
+
 	for i, taken := range s.bound {
 		if s.isBound[i] && taken == identity {
 			return false
@@ -449,27 +515,33 @@ func (s *search) suits(role int, identity core.ProcessIdentity) bool {
 
 // emit records the current bindings as a match.
 func (s *search) emit() {
-	processes := make([]core.Process, len(s.bound))
+	for i := range s.bound {
+		if !s.isBound[i] {
+			return
+		}
+	}
 
+	// Most bindings fail here, so nothing is built for the match until
+	// the sequence has been found.
+	var events []core.Event
+	if s.pattern.sequence != nil {
+		found, ok := s.findSequence()
+		if !ok {
+			return
+		}
+		events = found
+	}
+
+	processes := make([]core.Process, len(s.bound))
 	for i, identity := range s.bound {
 		process, ok := s.world.process(identity)
-		if !s.isBound[i] || !ok {
+		if !ok {
 			return
 		}
 		processes[i] = *process
 	}
 
-	match := Match{Processes: processes}
-
-	if s.pattern.sequence != nil {
-		events, ok := s.findSequence()
-		if !ok {
-			return
-		}
-		match.Events = events
-	}
-
-	s.matches = append(s.matches, match)
+	s.matches = append(s.matches, Match{Processes: processes, Events: events})
 }
 
 // findSequence looks, among the in-window events of the bound processes,
@@ -590,6 +662,17 @@ func (w *sliceWorld) chainsOf(identity core.ProcessIdentity) []*Chain {
 }
 
 func (w *sliceWorld) sequenceNotFound([]core.ProcessIdentity, bool) {}
+
+func (w *sliceWorld) childCount(parent core.ProcessIdentity) int {
+	return len(w.topology.children[parent])
+}
+
+func (w *sliceWorld) searched(uint64) {}
+
+// A sliceWorld keeps no record of which processes have had which events.
+func (w *sliceWorld) having(core.EventType) (map[core.ProcessIdentity]struct{}, bool) {
+	return nil, false
+}
 
 // thresholdMet counts over the events the chains happen to hold: there is no
 // engine here keeping counters as events arrive.

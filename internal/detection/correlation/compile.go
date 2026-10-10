@@ -45,6 +45,18 @@ type compiledRole struct {
 	events []compiledEvent
 	// thresholds are the requirements that need counting.
 	thresholds []compiledEvent
+	// implied are requirements that follow from the pattern's sequence: a
+	// role with a step of some type must have had an event of that type
+	// which passes whatever part of the step's filter does not depend on a
+	// capture. They are never looser than the sequence itself, so checking
+	// them changes no result; they let a process that cannot possibly take
+	// part be ruled out before any sequence is searched for.
+	implied []compiledEvent
+	// needs lists the selective event types (see indexedEventType) that a
+	// process must have had to fill this role, from all of the above. The
+	// search uses it to draw candidates from the processes that have had
+	// such an event instead of from every child of a parent.
+	needs []core.EventType
 }
 
 // compiledEvent is one event requirement: an event of the type that passes
@@ -85,6 +97,95 @@ func (r *compiledRole) suitsProcess(process *core.Process) bool {
 			return false
 		}
 	}
+	return true
+}
+
+// captureFreePart compiles the conditions of a sequence step's filter that
+// can be judged from the event alone. A filter is a conjunction of field
+// conditions, so leaving out the ones that refer to a capture can only accept
+// more events, never fewer. It returns nil when nothing is left.
+func captureFreePart(block *MatchBlock, eventType core.EventType) eventPredicate {
+	if block == nil {
+		return nil
+	}
+
+	reduced := MatchBlock{}
+	for _, fp := range block.Fields {
+		if !predicateHasReference(fp.Predicate) {
+			reduced.Fields = append(reduced.Fields, fp)
+		}
+	}
+	if !blockHasReference(&MatchBlock{AnyOf: block.AnyOf}) {
+		reduced.AnyOf = block.AnyOf
+	}
+	if reduced.IsEmpty() {
+		return nil
+	}
+
+	// The whole filter compiled, so its parts do.
+	where, err := compileEventWhere(&reduced, eventType, "where")
+	if err != nil {
+		return nil
+	}
+	return where
+}
+
+// indexedEventType reports whether the engine keeps track of which processes
+// have had an event of this type. It does so for the types only some
+// processes ever produce. Every process starts and exits, so knowing which
+// have done so would rule nobody out.
+func indexedEventType(eventType core.EventType) bool {
+	switch eventType {
+	case core.EventProcessStart, core.EventProcessExit, core.EventProcessExec, core.EventProcessSnapshot:
+		return false
+	}
+	return true
+}
+
+func neededEventTypes(role *compiledRole) []core.EventType {
+	var needs []core.EventType
+
+	add := func(requirements []compiledEvent) {
+		for i := range requirements {
+			eventType := requirements[i].eventType
+			if !indexedEventType(eventType) {
+				continue
+			}
+			known := false
+			for _, already := range needs {
+				known = known || already == eventType
+			}
+			if !known {
+				needs = append(needs, eventType)
+			}
+		}
+	}
+	add(role.events)
+	add(role.thresholds)
+	add(role.implied)
+
+	return needs
+}
+
+// impliedBy reports whether events include, for every step of the sequence
+// this role takes part in, an event that could be that step.
+func (r *compiledRole) impliedBy(events []core.Event) bool {
+	for i := range r.implied {
+		required := &r.implied[i]
+		found := false
+
+		for j := range events {
+			if events[j].Type == required.eventType && (required.where == nil || required.where(&events[j])) {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			return false
+		}
+	}
+
 	return true
 }
 
@@ -176,6 +277,18 @@ func compilePattern(pattern BehaviorPattern, window time.Duration) (*compiledPat
 			return compiled, fmt.Errorf("sequence: %w", err)
 		}
 		compiled.sequence = sequence
+
+		for _, step := range pattern.Sequence.Steps {
+			role := &roles[indexes[step.Role]]
+			role.implied = append(role.implied, compiledEvent{
+				eventType: step.Type,
+				where:     captureFreePart(step.Where, step.Type),
+			})
+		}
+	}
+
+	for i := range roles {
+		roles[i].needs = neededEventTypes(&roles[i])
 	}
 
 	compiled.roles = roles

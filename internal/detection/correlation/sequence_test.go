@@ -536,8 +536,10 @@ func TestSequencePossiblyTruncatedIsCounted(t *testing.T) {
 }
 
 func TestSequenceSearchIsBoundedAndCounted(t *testing.T) {
-	// Seven steps of one type and an eighth that never comes: without a
-	// bound the search would try every way of choosing seven events.
+	// Seven steps of one type and an eighth that never comes after them:
+	// without a bound the search would try every way of choosing seven
+	// events. The event the eighth step wants does exist, so the process
+	// is not ruled out before the search; it is just too early.
 	steps := make([]SequenceStep, 0, MaxSequenceSteps)
 	for i := 0; i < MaxSequenceSteps-1; i++ {
 		steps = append(steps, step("r", core.EventNetworkConnect))
@@ -547,10 +549,11 @@ func TestSequenceSearchIsBoundedAndCounted(t *testing.T) {
 		Where: block(fieldIs("remote_port", Predicate{Eq: sp("1")})),
 	})
 
-	h := newSequenceHarness(t, oneRoleSequence(SequencePattern{Steps: steps}))
+	h := newSequenceHarness(t, oneRoleSequence(SequencePattern{Steps: steps, OrderTolerance: tolerance(0)}))
 	p := proc(50, 1, "p", at(0))
 	h.start(p, at(0))
-	for i := 0; i < MaxEventsPerType; i++ {
+	h.connectTo(p, "203.0.113.1", 1, at(500*time.Millisecond))
+	for i := 0; i < MaxEventsPerType-1; i++ {
 		h.connectTo(p, "203.0.113.1", 443, at(time.Second+time.Duration(i)*time.Millisecond))
 	}
 

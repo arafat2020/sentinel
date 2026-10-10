@@ -78,6 +78,16 @@ type Engine struct {
 	rescan bool
 	// emitted maps a finding's dedup key to when it was last emitted.
 	emitted map[string]time.Time
+	// below queues, from belowNext on, the processes that have still to be
+	// marked as changed after an ancestor of theirs was relinked.
+	below     []awaiting
+	belowNext int
+
+	// having records, for each selective event type, the processes that
+	// have had an event of it. It may also hold a process whose events of
+	// that type have since left the window, until the next sweep.
+	having map[core.EventType]map[core.ProcessIdentity]struct{}
+
 	// pendingSince is the timestamp of the oldest event taken in since the
 	// last evaluation; zero when there is none. latency records, for each
 	// finding, how long after that it was emitted.
@@ -188,6 +198,23 @@ type Metrics struct {
 	// window was up because more than the cap had exited since.
 	TombstonesEvicted uint64
 
+	// SearchCandidates counts the candidate bindings of a process to a
+	// role that searches have considered. Divided by the events taken in,
+	// it is how much work an event costs; it should not grow with the
+	// number of processes.
+	SearchCandidates uint64
+
+	// SearchWorkDeferred counts the evaluations that ended with processes
+	// still waiting to be re-evaluated, because a process with a large
+	// subtree gained an ancestor. The work is done by the evaluations that
+	// follow; nothing is skipped. DeferredProcesses is how many are
+	// waiting now.
+	SearchWorkDeferred uint64
+	DeferredProcesses  int
+	// FullRescans counts the times everything was re-evaluated at once
+	// because more than maxDeferred processes were waiting.
+	FullRescans uint64
+
 	// DetectionLatency is how long findings have taken to be emitted,
 	// from the timestamp of the event that led to them.
 	DetectionLatency LatencySummary
@@ -220,6 +247,7 @@ func WithClock(now func() time.Time) Option {
 func NewEngine(window time.Duration, options ...Option) *Engine {
 	e := &Engine{
 		maxTombstones: DefaultMaxTombstones,
+		having:        make(map[core.EventType]map[core.ProcessIdentity]struct{}),
 		window:        window,
 		now:           time.Now,
 		records:       make(map[core.ProcessIdentity]*record),
@@ -319,6 +347,15 @@ func (e *Engine) Process(event core.Event) {
 			counted := event
 			e.count(&counted, known, refs)
 		}
+	}
+
+	if indexedEventType(event.Type) {
+		having := e.having[event.Type]
+		if having == nil {
+			having = make(map[core.ProcessIdentity]struct{})
+			e.having[event.Type] = having
+		}
+		having[identity] = struct{}{}
 	}
 
 	chains := e.chains[identity]
@@ -467,16 +504,62 @@ func (e *Engine) relinked(child core.ProcessIdentity) {
 		return
 	}
 
+	// The subtree is marked breadth first, up to maxSubtreeTouch processes
+	// now. Whatever is left is queued and marked a little at a time by the
+	// evaluations that follow, so a large subtree costs each of them a
+	// bounded amount instead of costing one of them everything.
+	e.enqueueBelow(child, 0)
+	e.markBelow()
+}
+
+// awaiting is a process waiting to be marked as changed because an ancestor
+// of it was relinked. depth is how far below that ancestor it is.
+type awaiting struct {
+	identity core.ProcessIdentity
+	depth    int
+}
+
+// maxDeferred bounds the queue of processes waiting to be marked. It is only
+// reached when most of a very large process tree is relinked at once; the
+// engine then re-evaluates everything once instead, and counts that it did.
+const maxDeferred = 1 << 17
+
+// enqueueBelow queues the children of a process for marking.
+func (e *Engine) enqueueBelow(parent core.ProcessIdentity, depth int) {
+	if depth >= MaxDepthLimit {
+		return
+	}
+	for child := range e.tree.children[parent] {
+		e.below = append(e.below, awaiting{identity: child, depth: depth + 1})
+	}
+}
+
+// markBelow marks up to maxSubtreeTouch queued processes as changed, queues
+// their children in turn, and leaves the rest for the next evaluation.
+func (e *Engine) markBelow() {
 	marked := 0
-	walkDescendants(e.tree, child, MaxDepthLimit, nil, func(identity core.ProcessIdentity) bool {
-		if marked >= maxSubtreeTouch {
-			e.rescan = true
-			return false
-		}
-		marked++
-		e.touch(identity)
-		return true
-	})
+
+	for ; marked < maxSubtreeTouch && e.belowNext < len(e.below); marked++ {
+		next := e.below[e.belowNext]
+		e.belowNext++
+
+		e.touch(next.identity)
+		e.enqueueBelow(next.identity, next.depth)
+	}
+
+	waiting := len(e.below) - e.belowNext
+	switch {
+	case waiting == 0:
+		e.below, e.belowNext = nil, 0
+
+	case waiting > maxDeferred:
+		e.below, e.belowNext = nil, 0
+		e.rescan = true
+		e.metrics.FullRescans++
+
+	default:
+		e.metrics.SearchWorkDeferred++
+	}
 }
 
 // touch marks a process as changed since the last evaluation.
@@ -747,10 +830,17 @@ func (e *Engine) sweep(now time.Time) {
 
 	for identity, chains := range e.chains {
 		kept := chains[:0]
+		pruned := false
 		for _, chain := range chains {
+			before := len(chain.events)
 			if chain.Prune(cutoff) > 0 {
 				kept = append(kept, chain)
 			}
+			pruned = pruned || len(chain.events) != before
+		}
+
+		if pruned {
+			e.forgetEventTypes(identity, kept)
 		}
 
 		if len(kept) == 0 {
@@ -816,7 +906,33 @@ func expired(r *record, cutoff time.Time) bool {
 
 // evict forgets a process entirely: its record, events, relationships and
 // index entries.
+// forgetEventTypes removes a process from the record of which processes have
+// had which events, for every type its chains no longer hold.
+func (e *Engine) forgetEventTypes(identity core.ProcessIdentity, chains []*Chain) {
+	for eventType, having := range e.having {
+		if _, listed := having[identity]; !listed {
+			continue
+		}
+
+		held := false
+		for _, chain := range chains {
+			for i := range chain.events {
+				if chain.events[i].Type == eventType {
+					held = true
+					break
+				}
+			}
+		}
+
+		if !held {
+			delete(having, identity)
+		}
+	}
+}
+
 func (e *Engine) evict(identity core.ProcessIdentity, known *record) {
+	e.forgetEventTypes(identity, nil)
+
 	if !known.exitedAt.IsZero() {
 		e.tombstones--
 	}
@@ -908,6 +1024,14 @@ func (e *Engine) DetectBehaviors() []core.Finding {
 	// reportable. Everything else was evaluated the last time round, time
 	// passing only ever takes events out of the window, and a finding whose
 	// suppression has just lapsed had its processes marked as changed.
+	// Carry on with any marking left over from earlier evaluations.
+	if e.rescan {
+		// Everything is about to be looked at anyway.
+		e.below, e.belowNext = nil, 0
+	} else if e.belowNext < len(e.below) {
+		e.markBelow()
+	}
+
 	// Whatever is found from here on was set off by what has been taken
 	// in since the last evaluation.
 	pending := e.pendingSince
@@ -1312,6 +1436,7 @@ func (e *Engine) Metrics() Metrics {
 	metrics.Processes = len(e.records)
 	metrics.Tombstones = e.tombstones
 	metrics.DetectionLatency = e.latency.summary()
+	metrics.DeferredProcesses = len(e.below) - e.belowNext
 
 	return metrics
 }
@@ -1375,6 +1500,18 @@ func (w engineWorld) eachChild(parent core.ProcessIdentity, visit func(core.Proc
 			return
 		}
 	}
+}
+
+func (w engineWorld) searched(candidates uint64) {
+	w.engine.metrics.SearchCandidates += candidates
+}
+
+func (w engineWorld) childCount(parent core.ProcessIdentity) int {
+	return len(w.engine.tree.children[parent])
+}
+
+func (w engineWorld) having(eventType core.EventType) (map[core.ProcessIdentity]struct{}, bool) {
+	return w.engine.having[eventType], true
 }
 
 func (w engineWorld) eachDescendant(parent core.ProcessIdentity, maxDepth int, visit func(core.ProcessIdentity) bool) {

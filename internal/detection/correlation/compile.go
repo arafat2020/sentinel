@@ -130,17 +130,39 @@ func captureFreePart(block *MatchBlock, eventType core.EventType) eventPredicate
 	return where
 }
 
-// indexedEventType reports whether the engine keeps track of which processes
-// have had an event of this type. It does so for the types only some
-// processes ever produce. Every process starts and exits, so knowing which
-// have done so would rule nobody out.
-func indexedEventType(eventType core.EventType) bool {
+// indexedEventTypes is how many event types the engine keeps a record of
+// processes for.
+const indexedEventTypes = 9
+
+// eventTypeSlot returns where the engine records which processes have had an
+// event of this type, or -1 for a type it keeps no record of. It keeps one
+// for the types only some processes ever produce. Every process starts and
+// exits, so knowing which have done so would rule nobody out.
+func eventTypeSlot(eventType core.EventType) int {
 	switch eventType {
-	case core.EventProcessStart, core.EventProcessExit, core.EventProcessExec, core.EventProcessSnapshot:
-		return false
+	case core.EventNetworkConnect:
+		return 0
+	case core.EventNetworkClose:
+		return 1
+	case core.EventDNSQuery:
+		return 2
+	case core.EventFileCreate:
+		return 3
+	case core.EventFileModify:
+		return 4
+	case core.EventFileDelete:
+		return 5
+	case core.EventFileRename:
+		return 6
+	case core.EventPersistenceChange:
+		return 7
+	case core.EventScriptExecution:
+		return 8
 	}
-	return true
+	return -1
 }
+
+func indexedEventType(eventType core.EventType) bool { return eventTypeSlot(eventType) >= 0 }
 
 func neededEventTypes(role *compiledRole) []core.EventType {
 	var needs []core.EventType

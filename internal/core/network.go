@@ -3,22 +3,22 @@ package core
 import "time"
 
 type NetworkConnection struct {
-	Timestamp time.Time
+	Timestamp time.Time `json:"timestamp,omitzero"`
 
-	PID  int32
-	PPID int32
+	PID  int32 `json:"pid"`
+	PPID int32 `json:"ppid"`
 
-	Protocol string
+	Protocol string `json:"protocol,omitempty"`
 
-	LocalAddress string
-	LocalPort    uint32
+	LocalAddress string `json:"local_address,omitempty"`
+	LocalPort    uint32 `json:"local_port,omitempty"`
 
-	RemoteAddress string
-	RemotePort    uint32
+	RemoteAddress string `json:"remote_address,omitempty"`
+	RemotePort    uint32 `json:"remote_port,omitempty"`
 
-	State string
+	State string `json:"state,omitempty"`
 
-	Process *Process
+	Process *Process `json:"process,omitempty"`
 }
 
 type NetworkConnectionIdentity struct {

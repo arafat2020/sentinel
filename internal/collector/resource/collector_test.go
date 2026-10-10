@@ -5,8 +5,11 @@ import (
 	"errors"
 	"math"
 	"os"
+	"runtime"
 	"testing"
 	"time"
+
+	gopsprocess "github.com/shirou/gopsutil/v4/process"
 
 	"github.com/arafat2020/sentinel/internal/core"
 )
@@ -65,7 +68,7 @@ func approx(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
 
 func TestCollectFirstSampleHasNoCPUBaseline(t *testing.T) {
 	c, src, _ := newTestCollector()
-	src.procs = []procSample{{pid: 1, name: "init", cpuSeconds: 50, cpuOK: true, rss: 1024}}
+	src.procs = []procSample{{pid: 1, startMs: 5000, name: "init", cpuSeconds: 50, cpuOK: true, rss: 1024, memOK: true}}
 	src.cpuNow = cpuSample{busy: 10, total: 100}
 
 	snap := mustCollect(t, c)
@@ -74,11 +77,14 @@ func TestCollectFirstSampleHasNoCPUBaseline(t *testing.T) {
 		t.Fatalf("got %d processes, want 1", len(snap.Processes))
 	}
 	p := snap.Processes[0]
-	if p.CPUPercent != 0 {
-		t.Errorf("first sample CPU = %v, want 0", p.CPUPercent)
+	if p.CPUValid || p.CPUPercent != 0 {
+		t.Errorf("first sample CPU = %v (valid=%v), want unavailable", p.CPUPercent, p.CPUValid)
 	}
-	if p.Name != "init" || p.MemoryBytes != 1024 {
+	if p.Name != "init" || p.MemoryBytes != 1024 || !p.MemoryValid {
 		t.Errorf("unexpected usage: %+v", p)
+	}
+	if !p.StartTime.Equal(time.UnixMilli(5000)) {
+		t.Errorf("start time = %v, want %v", p.StartTime, time.UnixMilli(5000))
 	}
 	if snap.System.CPUValid {
 		t.Error("system CPU must be invalid without a previous sample")
@@ -107,11 +113,11 @@ func TestCollectComputesCPUFromDeltas(t *testing.T) {
 	snap := mustCollect(t, c)
 	got := usageByPID(snap)
 
-	if !approx(got[1].CPUPercent, 50) {
-		t.Errorf("pid 1 CPU = %v, want 50", got[1].CPUPercent)
+	if !got[1].CPUValid || !approx(got[1].CPUPercent, 50) {
+		t.Errorf("pid 1 CPU = %v (valid=%v), want 50", got[1].CPUPercent, got[1].CPUValid)
 	}
-	if !approx(got[2].CPUPercent, 200) {
-		t.Errorf("pid 2 CPU = %v, want 200", got[2].CPUPercent)
+	if !got[2].CPUValid || !approx(got[2].CPUPercent, 200) {
+		t.Errorf("pid 2 CPU = %v (valid=%v), want 200", got[2].CPUPercent, got[2].CPUValid)
 	}
 	if !snap.System.CPUValid || !approx(snap.System.CPUPercent, 25) {
 		t.Errorf("system CPU = %+v, want valid 25", snap.System)
@@ -141,36 +147,127 @@ func TestCollectHandlesExitedAndReusedPIDs(t *testing.T) {
 	if !approx(got[1].CPUPercent, 50) {
 		t.Errorf("pid 1 CPU = %v, want 50", got[1].CPUPercent)
 	}
-	if got[3].CPUPercent != 0 {
-		t.Errorf("reused pid CPU = %v, want 0", got[3].CPUPercent)
+	if got[3].CPUValid {
+		t.Errorf("reused pid CPU = %v, want unavailable", got[3].CPUPercent)
 	}
-	if got[4].CPUPercent != 0 {
-		t.Errorf("new pid CPU = %v, want 0", got[4].CPUPercent)
+	if got[4].CPUValid {
+		t.Errorf("new pid CPU = %v, want unavailable", got[4].CPUPercent)
 	}
 
 	// The exited PID's baseline must be gone: if it comes back it starts at 0.
 	clock.advance(time.Second)
 	src.procs = []procSample{{pid: 2, name: "back", cpuSeconds: 50, cpuOK: true}}
 	got = usageByPID(mustCollect(t, c))
-	if got[2].CPUPercent != 0 {
-		t.Errorf("returning pid CPU = %v, want 0", got[2].CPUPercent)
+	if got[2].CPUValid {
+		t.Errorf("returning pid CPU = %v, want unavailable", got[2].CPUPercent)
 	}
 }
 
-func TestCollectKeepsProcessWhenCPUUnreadable(t *testing.T) {
+func TestCollectMarksUnreadableMetricsUnavailable(t *testing.T) {
 	c, src, clock := newTestCollector()
-	src.procs = []procSample{{pid: 7, name: "denied", rss: 2048}}
+	src.procs = []procSample{
+		{pid: 7, name: "denied"},
+		{pid: 8, name: "cpu-only", cpuSeconds: 1, cpuOK: true},
+		{pid: 9, name: "mem-only", rss: 2048, memOK: true},
+	}
 	mustCollect(t, c)
 
 	clock.advance(time.Second)
+	src.procs[1].cpuSeconds = 1.5
 	got := usageByPID(mustCollect(t, c))
 
-	p, ok := got[7]
-	if !ok {
-		t.Fatal("process with unreadable CPU was dropped")
+	if len(got) != 3 {
+		t.Fatalf("got %d processes, want all 3 kept", len(got))
 	}
-	if p.CPUPercent != 0 || p.MemoryBytes != 2048 {
-		t.Errorf("unexpected usage: %+v", p)
+	if p := got[7]; p.CPUValid || p.MemoryValid || p.Name != "denied" {
+		t.Errorf("fully unreadable process: %+v", p)
+	}
+	if p := got[8]; !p.CPUValid || !approx(p.CPUPercent, 50) || p.MemoryValid {
+		t.Errorf("cpu-only process: %+v", p)
+	}
+	if p := got[9]; p.CPUValid || !p.MemoryValid || p.MemoryBytes != 2048 {
+		t.Errorf("mem-only process: %+v", p)
+	}
+}
+
+// A reading that drops out must not be diffed across: the sample after the
+// gap has no baseline, rather than a spike covering the whole gap.
+func TestCollectUnavailableCPUDoesNotPoisonBaseline(t *testing.T) {
+	c, src, clock := newTestCollector()
+	step := func(s procSample) core.ProcessUsage {
+		t.Helper()
+		clock.advance(time.Second)
+		src.procs = []procSample{s}
+		return usageByPID(mustCollect(t, c))[1]
+	}
+
+	step(procSample{pid: 1, startMs: 10, cpuSeconds: 3600, cpuOK: true})
+	if p := step(procSample{pid: 1, startMs: 10, cpuSeconds: 3600.5, cpuOK: true}); !p.CPUValid || !approx(p.CPUPercent, 50) {
+		t.Fatalf("steady state: %+v, want 50%%", p)
+	}
+
+	// The counter becomes unreadable (reported as zero by the sampler).
+	if p := step(procSample{pid: 1, startMs: 10}); p.CPUValid {
+		t.Errorf("unreadable sample reported CPU %v", p.CPUPercent)
+	}
+
+	// It comes back with an hour of accumulated CPU time.
+	if p := step(procSample{pid: 1, startMs: 10, cpuSeconds: 3601, cpuOK: true}); p.CPUValid {
+		t.Errorf("first sample after the gap reported CPU %v, want unavailable", p.CPUPercent)
+	}
+	if p := step(procSample{pid: 1, startMs: 10, cpuSeconds: 3601.25, cpuOK: true}); !p.CPUValid || !approx(p.CPUPercent, 25) {
+		t.Errorf("second sample after the gap: %+v, want 25%%", p)
+	}
+}
+
+func TestCollectReusedPIDDoesNotInheritBaseline(t *testing.T) {
+	c, src, clock := newTestCollector()
+	src.procs = []procSample{{pid: 42, startMs: 1000, name: "old", cpuSeconds: 0.01, cpuOK: true}}
+	mustCollect(t, c)
+
+	// Same PID, different process. Its counter is higher than the old
+	// baseline, so only the start time tells them apart.
+	clock.advance(2 * time.Second)
+	src.procs = []procSample{{pid: 42, startMs: 2000, name: "new", cpuSeconds: 1.5, cpuOK: true}}
+	p := usageByPID(mustCollect(t, c))[42]
+	if p.CPUValid {
+		t.Errorf("reused PID inherited a baseline: CPU = %v", p.CPUPercent)
+	}
+
+	clock.advance(2 * time.Second)
+	src.procs = []procSample{{pid: 42, startMs: 2000, name: "new", cpuSeconds: 2.5, cpuOK: true}}
+	p = usageByPID(mustCollect(t, c))[42]
+	if !p.CPUValid || !approx(p.CPUPercent, 50) {
+		t.Errorf("new process second sample: %+v, want 50%%", p)
+	}
+}
+
+// Without a creation time the PID is the only identity available; the
+// backwards-counter check is then the remaining defence against reuse.
+func TestCollectUnknownStartTimeFallsBackToPID(t *testing.T) {
+	c, src, clock := newTestCollector()
+	src.procs = []procSample{{pid: 5, cpuSeconds: 10, cpuOK: true}}
+	if p := mustCollect(t, c).Processes[0]; !p.StartTime.IsZero() {
+		t.Errorf("unknown start time reported as %v", p.StartTime)
+	}
+
+	clock.advance(time.Second)
+	src.procs = []procSample{{pid: 5, cpuSeconds: 10.5, cpuOK: true}}
+	if p := mustCollect(t, c).Processes[0]; !p.CPUValid || !approx(p.CPUPercent, 50) {
+		t.Errorf("same PID without start time: %+v, want 50%%", p)
+	}
+
+	// The start time becoming known is not proof it is the same process.
+	clock.advance(time.Second)
+	src.procs = []procSample{{pid: 5, startMs: 777, cpuSeconds: 11, cpuOK: true}}
+	if p := mustCollect(t, c).Processes[0]; p.CPUValid {
+		t.Errorf("identity changed but CPU reported as %v", p.CPUPercent)
+	}
+
+	clock.advance(time.Second)
+	src.procs = []procSample{{pid: 5, startMs: 777, cpuSeconds: 0.2, cpuOK: true}}
+	if p := mustCollect(t, c).Processes[0]; p.CPUValid {
+		t.Errorf("counter went backwards but CPU reported as %v", p.CPUPercent)
 	}
 }
 
@@ -237,18 +334,47 @@ func TestCollectCancelledContext(t *testing.T) {
 
 // TestCollectLive exercises the real gopsutil sampler against this host.
 func TestCollectLive(t *testing.T) {
+	ctx := context.Background()
 	c := NewCollector()
 
 	mustCollect(t, c)
+	listed, err := gopsprocess.PidsWithContext(ctx)
+	if err != nil {
+		t.Fatalf("list pids: %v", err)
+	}
 	snap := mustCollect(t, c)
+
+	// Processes come and go between the two calls, but a large shortfall
+	// means live processes are being dropped for being unreadable.
+	if got, floor := len(snap.Processes), len(listed)*9/10; got < floor {
+		t.Errorf("snapshot has %d processes but the OS lists %d", got, len(listed))
+	}
 
 	self, ok := usageByPID(snap)[int32(os.Getpid())]
 	if !ok {
 		t.Fatalf("own pid %d missing from %d processes", os.Getpid(), len(snap.Processes))
 	}
-	if self.Name == "" || self.MemoryBytes == 0 {
-		t.Errorf("own process usage looks empty: %+v", self)
+	if self.Name == "" || !self.MemoryValid || self.MemoryBytes == 0 || !self.CPUValid {
+		t.Errorf("own process usage looks wrong: %+v", self)
 	}
+	if self.StartTime.IsZero() || self.StartTime.After(time.Now()) {
+		t.Errorf("own process start time = %v", self.StartTime)
+	}
+
+	for _, p := range snap.Processes {
+		if !p.MemoryValid && p.MemoryBytes != 0 {
+			t.Fatalf("pid %d: unavailable memory carries a value: %+v", p.PID, p)
+		}
+		if !p.CPUValid && p.CPUPercent != 0 {
+			t.Fatalf("pid %d: unavailable CPU carries a value: %+v", p.PID, p)
+		}
+		// Where a refused query comes back as zeros (macOS), a zero must
+		// never be presented as a measurement.
+		if runtime.GOOS == "darwin" && p.MemoryValid && p.MemoryBytes == 0 {
+			t.Fatalf("pid %d: zero memory reported as measured: %+v", p.PID, p)
+		}
+	}
+
 	if !snap.System.MemoryValid || snap.System.MemoryUsed > snap.System.MemoryTotal {
 		t.Errorf("implausible system memory: %+v", snap.System)
 	}

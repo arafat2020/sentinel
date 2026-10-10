@@ -4,25 +4,67 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/arafat2020/sentinel/internal/store"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
+// sshOps are the SSH daemon operations the settings page drives. They block
+// on the OS, so the page only ever calls them off the event loop.
+type sshOps struct {
+	status  func() string
+	enable  func() error
+	disable func() error
+}
+
+// settingsHost is what the settings page needs from the dashboard it is
+// embedded in. Both hooks are called on the event loop.
+type settingsHost struct {
+	// restore puts the dashboard back on screen after one of the page's
+	// modals closes. toForm says whether focus was inside the settings form
+	// when the modal opened; the host decides where focus belongs now.
+	restore func(toForm bool)
+	// leave hands keyboard focus back to tab navigation.
+	leave func()
+}
+
+const (
+	settingsShortcutHint = "Ctrl+S = Save    Ctrl+F = Flush    Ctrl+D = Disable SSH    Ctrl+E = Enable SSH"
+	settingsHintTabs     = "[gray]  ←/→ 1-8 = switch tab    Enter = edit settings    " + settingsShortcutHint + "[-]"
+	settingsHintForm     = "[gray]  Esc = back to tabs    Tab = next field    " + settingsShortcutHint + "[-]"
+)
+
 // SettingsPage is the TUI settings editor (tab 7).
 type SettingsPage struct {
 	app       *tview.Application
 	store     *store.Store
+	ssh       sshOps
+	host      settingsHost
 	root      *tview.Flex
-	appRoot   tview.Primitive // whole dashboard; restored after a modal closes
 	form      *tview.Form
+	hint      *tview.TextView
 	sshStatus *tview.TextView // live SSH status indicator
+
+	// Event-loop only.
+	hintForForm   bool // which hint text is currently shown
+	modalFromForm bool // whether the open modal was raised from the form
+
+	bg sync.WaitGroup // background SSH calls still in flight
 }
 
 // NewSettingsPage constructs the settings page.
 func NewSettingsPage(app *tview.Application, s *store.Store) *SettingsPage {
-	sp := &SettingsPage{app: app, store: s}
+	return newSettingsPage(app, s, sshOps{
+		status:  sshCurrentStatus,
+		enable:  sshEnable,
+		disable: sshDisable,
+	})
+}
+
+func newSettingsPage(app *tview.Application, s *store.Store, ssh sshOps) *SettingsPage {
+	sp := &SettingsPage{app: app, store: s, ssh: ssh}
 	sp.build()
 	return sp
 }
@@ -30,22 +72,82 @@ func NewSettingsPage(app *tview.Application, s *store.Store) *SettingsPage {
 // Root returns the primitive to register with tview.Pages.
 func (sp *SettingsPage) Root() tview.Primitive { return sp.root }
 
-// SetAppRoot tells the page what to put back on screen after one of its
-// modals closes. Without it the page restores itself, dropping the tab bar.
-func (sp *SettingsPage) SetAppRoot(root tview.Primitive) { sp.appRoot = root }
+// SetHost wires the page into the dashboard. Without a host the page still
+// works standalone: closing a modal shows the page itself.
+func (sp *SettingsPage) SetHost(h settingsHost) { sp.host = h }
 
 // FormHasFocus reports whether focus is inside the settings form (as opposed
 // to the tab bar or one of the page's modals).
 func (sp *SettingsPage) FormHasFocus() bool { return sp.form.HasFocus() }
 
-// closeModal returns from a modal to the dashboard with focus on the form.
+// HandleShortcut runs the action bound to a settings shortcut and reports
+// whether the key was one. The shortcuts work both inside the form and from
+// the tab bar while the Settings tab is showing.
+func (sp *SettingsPage) HandleShortcut(event *tcell.EventKey) bool {
+	switch event.Key() {
+	case tcell.KeyCtrlS:
+		sp.save()
+	case tcell.KeyCtrlF:
+		sp.flush()
+	case tcell.KeyCtrlD:
+		sp.confirmSSHAction(false)
+	case tcell.KeyCtrlE:
+		sp.confirmSSHAction(true)
+	default:
+		return false
+	}
+	return true
+}
+
+// SyncHint makes the hint line describe the keys that work in the current
+// focus state. Must be called on the event loop; cheap when nothing changed.
+func (sp *SettingsPage) SyncHint() {
+	if forForm := sp.form.HasFocus(); forForm != sp.hintForForm {
+		sp.hintForForm = forForm
+		sp.hint.SetText(settingsHint(forForm))
+	}
+}
+
+func settingsHint(forForm bool) string {
+	if forForm {
+		return settingsHintForm
+	}
+	return settingsHintTabs
+}
+
+// leaveForm is the form's cancel action (Esc).
+func (sp *SettingsPage) leaveForm() {
+	if sp.host.leave != nil {
+		sp.host.leave()
+	}
+}
+
+// showModal replaces the screen with a modal, remembering where focus was so
+// closeModal can put it back.
+func (sp *SettingsPage) showModal(modal *tview.Modal) {
+	sp.modalFromForm = sp.form.HasFocus()
+	sp.app.SetRoot(modal, false)
+}
+
+// closeModal returns from a modal to whatever the dashboard is showing now,
+// which is not necessarily this page: results of background SSH calls arrive
+// after the user may have moved to another tab.
 func (sp *SettingsPage) closeModal() {
-	if sp.appRoot == nil {
+	if sp.host.restore == nil {
 		sp.app.SetRoot(sp.root, true)
 		return
 	}
-	sp.app.SetRoot(sp.appRoot, true)
-	sp.app.SetFocus(sp.form)
+	sp.host.restore(sp.modalFromForm)
+}
+
+// async runs fn off the event loop and tracks it until it has finished,
+// including any UI update it queues.
+func (sp *SettingsPage) async(fn func()) {
+	sp.bg.Add(1)
+	go func() {
+		defer sp.bg.Done()
+		fn()
+	}()
 }
 
 func (sp *SettingsPage) build() {
@@ -53,28 +155,23 @@ func (sp *SettingsPage) build() {
 	sp.form.SetBorder(true).SetTitle(" Settings ").SetTitleAlign(tview.AlignLeft)
 	sp.form.SetFieldBackgroundColor(tcell.ColorDarkBlue)
 
-	hint := tview.NewTextView().
+	// Without a cancel function tview's Form answers Esc by refocusing its
+	// first item. Here that is a read-only text view, which hands focus
+	// straight back while still holding its own lock: the event loop
+	// deadlocks. Esc therefore always has an explicit action.
+	sp.form.SetCancelFunc(sp.leaveForm)
+
+	sp.hint = tview.NewTextView().
 		SetDynamicColors(true).
-		SetText("[gray]  Enter = edit    Esc = back to tabs    Tab = next field    Ctrl+S = Save    Ctrl+F = Flush    Ctrl+D = Disable SSH    Ctrl+E = Enable SSH[-]")
-	hint.SetBorder(false)
+		SetText(settingsHint(false))
+	sp.hint.SetBorder(false)
 
 	sp.root = tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(sp.form, 0, 1, true).
-		AddItem(hint, 1, 0, false)
+		AddItem(sp.hint, 1, 0, false)
 
 	sp.form.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch event.Key() {
-		case tcell.KeyCtrlS:
-			sp.save()
-			return nil
-		case tcell.KeyCtrlF:
-			sp.flush()
-			return nil
-		case tcell.KeyCtrlD:
-			sp.confirmSSHAction(false)
-			return nil
-		case tcell.KeyCtrlE:
-			sp.confirmSSHAction(true)
+		if sp.HandleShortcut(event) {
 			return nil
 		}
 		return event
@@ -127,12 +224,7 @@ func (sp *SettingsPage) reload() {
 	sp.refreshSSHStatus()
 	sp.form.AddFormItem(sp.sshStatus)
 
-	sp.form.AddButton("Refresh Status", func() {
-		go func() {
-			status := sshCurrentStatus()
-			sp.app.QueueUpdateDraw(func() { sp.applySSHStatus(status) })
-		}()
-	})
+	sp.form.AddButton("Refresh Status", sp.refreshSSHStatus)
 
 	sp.form.AddButton("Disable SSH", func() { sp.confirmSSHAction(false) })
 	sp.form.AddButton("Enable SSH", func() { sp.confirmSSHAction(true) })
@@ -141,10 +233,10 @@ func (sp *SettingsPage) reload() {
 // refreshSSHStatus spawns a goroutine to check SSH status and update the UI.
 // Safe to call from the event loop — the OS call happens off it.
 func (sp *SettingsPage) refreshSSHStatus() {
-	go func() {
-		status := sshCurrentStatus()
+	sp.async(func() {
+		status := sp.ssh.status()
 		sp.app.QueueUpdateDraw(func() { sp.applySSHStatus(status) })
-	}()
+	})
 }
 
 // applySSHStatus updates the status TextView. Must be called on the event loop.
@@ -184,14 +276,14 @@ func (sp *SettingsPage) confirmSSHAction(enable bool) {
 
 			// All blocking OS calls run in a goroutine.
 			// QueueUpdateDraw is the only safe way to touch the UI from here.
-			go func() {
+			sp.async(func() {
 				var cmdErr error
 				if enable {
-					cmdErr = sshEnable()
+					cmdErr = sp.ssh.enable()
 				} else {
-					cmdErr = sshDisable()
+					cmdErr = sp.ssh.disable()
 				}
-				status := sshCurrentStatus() // fast pgrep check, off event loop
+				status := sp.ssh.status() // off the event loop
 				sp.app.QueueUpdateDraw(func() {
 					sp.applySSHStatus(status)
 					if cmdErr != nil {
@@ -200,9 +292,9 @@ func (sp *SettingsPage) confirmSSHAction(enable bool) {
 						sp.showInfo(fmt.Sprintf("SSH has been %sd.", action))
 					}
 				})
-			}()
+			})
 		})
-	sp.app.SetRoot(modal, false)
+	sp.showModal(modal)
 }
 
 func (sp *SettingsPage) save() {
@@ -249,7 +341,7 @@ func (sp *SettingsPage) showError(msg string) {
 		SetDoneFunc(func(_ int, _ string) {
 			sp.closeModal()
 		})
-	sp.app.SetRoot(modal, false)
+	sp.showModal(modal)
 }
 
 func (sp *SettingsPage) showInfo(msg string) {
@@ -259,5 +351,5 @@ func (sp *SettingsPage) showInfo(msg string) {
 		SetDoneFunc(func(_ int, _ string) {
 			sp.closeModal()
 		})
-	sp.app.SetRoot(modal, false)
+	sp.showModal(modal)
 }

@@ -13,10 +13,21 @@ import (
 // procSample is one process's raw counters at a point in time.
 type procSample struct {
 	pid        int32
-	name       string
+	startMs    int64   // creation time in Unix milliseconds; 0 when unknown
+	name       string  // empty when unreadable
 	cpuSeconds float64 // cumulative user+system CPU time
 	cpuOK      bool    // false when cpuSeconds could not be read
 	rss        uint64
+	memOK      bool // false when rss could not be read
+}
+
+// procKey identifies a process across samples. PIDs are recycled, so the
+// creation time is part of the key. When the platform does not report one
+// (startMs == 0) the PID alone is used, and the collector falls back to
+// noticing that the CPU counter went backwards.
+type procKey struct {
+	pid     int32
+	startMs int64
 }
 
 // cpuSample is the host's cumulative CPU time, in seconds.
@@ -26,7 +37,8 @@ type cpuSample struct {
 }
 
 // sampler reads raw counters from the OS. Processes that vanish while being
-// read must be omitted rather than reported as an error.
+// read must be omitted rather than reported as an error; processes that are
+// alive but unreadable must be kept, with cpuOK/memOK cleared.
 type sampler interface {
 	processes(ctx context.Context) ([]procSample, error)
 	cpu(ctx context.Context) (cpuSample, error)
@@ -35,15 +47,15 @@ type sampler interface {
 
 // Collector turns cumulative OS counters into per-interval usage. CPU
 // percentages are derived from the difference between consecutive Collect
-// calls, so the first call reports 0% for every process and no system CPU.
-// It is safe for concurrent use.
+// calls, so a process has no valid CPU figure until it has been seen twice
+// in a row with a readable counter. It is safe for concurrent use.
 type Collector struct {
 	src sampler
 	now func() time.Time
 
 	mu       sync.Mutex
 	prevAt   time.Time
-	prevProc map[int32]float64 // pid → cpuSeconds at prevAt
+	prevProc map[procKey]float64 // cpuSeconds at prevAt, readable counters only
 	prevCPU  cpuSample
 	hasCPU   bool
 }
@@ -78,24 +90,37 @@ func (c *Collector) Collect(
 		Processes: make([]core.ProcessUsage, 0, len(samples)),
 	}
 
-	// Rebuilding the baseline from this sample alone drops exited processes.
-	nextProc := make(map[int32]float64, len(samples))
+	// Rebuilding the baseline from this sample alone drops exited processes
+	// and any process whose counter was unreadable this time, so a gap in
+	// readings can never be diffed across.
+	nextProc := make(map[procKey]float64, len(samples))
 
 	for _, s := range samples {
 		usage := core.ProcessUsage{
 			PID:         s.pid,
 			Name:        s.name,
 			MemoryBytes: s.rss,
+			MemoryValid: s.memOK,
+		}
+		if s.startMs > 0 {
+			usage.StartTime = time.UnixMilli(s.startMs)
+		}
+		if !s.memOK {
+			usage.MemoryBytes = 0
 		}
 
 		if s.cpuOK {
+			key := procKey{pid: s.pid, startMs: s.startMs}
+
 			// A counter that went backwards means the PID was reused by a
-			// new process; treat it as having no baseline.
-			prev, seen := c.prevProc[s.pid]
+			// new process whose start time we could not tell apart; treat
+			// it as having no baseline.
+			prev, seen := c.prevProc[key]
 			if seen && elapsed > 0 && s.cpuSeconds >= prev {
 				usage.CPUPercent = (s.cpuSeconds - prev) / elapsed * 100
+				usage.CPUValid = true
 			}
-			nextProc[s.pid] = s.cpuSeconds
+			nextProc[key] = s.cpuSeconds
 		}
 
 		snapshot.Processes = append(snapshot.Processes, usage)

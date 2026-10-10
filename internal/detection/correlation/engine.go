@@ -245,7 +245,14 @@ func (e *Engine) Process(event core.Event) {
 		return
 	}
 
-	e.count(&event, known)
+	// Only when some requirement counts this type of event. The copy keeps
+	// the event itself off the heap in the usual case that none does.
+	if len(e.thresholds) > 0 {
+		if refs := e.thresholds[event.Type]; len(refs) > 0 {
+			counted := event
+			e.count(&counted, known, refs)
+		}
+	}
 
 	chains := e.chains[identity]
 
@@ -292,14 +299,9 @@ func (e *Engine) canonical(process core.Process) core.Process {
 	return holder.process
 }
 
-// count feeds an in-window event to every counting requirement it matches,
-// for the roles its process could fill.
-func (e *Engine) count(event *core.Event, known *record) {
-	refs := e.thresholds[event.Type]
-	if len(refs) == 0 {
-		return
-	}
-
+// count feeds an in-window event to each of the given counting requirements
+// that it matches, for the roles its process could fill.
+func (e *Engine) count(event *core.Event, known *record, refs []thresholdRef) {
 	identity := known.process.Identity()
 
 	for _, ref := range refs {

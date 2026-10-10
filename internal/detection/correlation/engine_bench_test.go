@@ -105,6 +105,74 @@ func benchPredicatePatternSet() []BehaviorPattern {
 	return patterns
 }
 
+// benchTemporalPatternSet is ten patterns built from the temporal and
+// structural features: relationships spanning generations, count and
+// distinct thresholds, and sequences with and without a capture.
+func benchTemporalPatternSet() []BehaviorPattern {
+	interpreters := []string{`^python[0-9.]*$`, `^(ba|z|da)?sh$`, `^node(js)?$`, `^curl$`, `^java$`}
+
+	var patterns []BehaviorPattern
+	for i := 0; len(patterns) < benchPatterns; i++ {
+		name := &MatchBlock{Fields: []FieldPredicate{
+			{Field: "name", Predicate: Predicate{Regex: stringPtr(interpreters[i%len(interpreters)])}},
+		}}
+
+		switch i % 4 {
+		case 0: // an interpreter somewhere below a non-root process, connecting out
+			patterns = append(patterns, BehaviorPattern{
+				Name: fmt.Sprintf("bench-descendant-%d", i),
+				Processes: []ProcessPattern{
+					{ID: "top", Match: &MatchBlock{Fields: []FieldPredicate{
+						{Field: "user", Predicate: Predicate{Not: &Predicate{Eq: stringPtr("root")}}},
+					}}},
+					{ID: "bottom", Match: name, Events: []EventPattern{{Type: core.EventNetworkConnect}}},
+				},
+				Relationships: []RelationshipPattern{
+					{Type: RelationshipDescendant, Parent: "top", Child: "bottom", MaxDepth: 4},
+				},
+			})
+
+		case 1: // many distinct lookups from one process
+			patterns = append(patterns, BehaviorPattern{
+				Name: fmt.Sprintf("bench-distinct-%d", i),
+				Processes: []ProcessPattern{{ID: "p", Match: name, Events: []EventPattern{
+					{Type: core.EventDNSQuery, Count: 4, Distinct: "domain", Within: time.Minute},
+				}}},
+			})
+
+		case 2: // a burst of connections to unusual ports
+			patterns = append(patterns, BehaviorPattern{
+				Name: fmt.Sprintf("bench-count-%d", i),
+				Processes: []ProcessPattern{{ID: "p", Match: name, Events: []EventPattern{{
+					Type: core.EventNetworkConnect, Count: 5, Within: 2 * time.Minute,
+					Where: &MatchBlock{Fields: []FieldPredicate{
+						{Field: "remote_port", Predicate: Predicate{Not: &Predicate{In: []string{"80", "443"}}}},
+					}},
+				}}}},
+			})
+
+		default: // lookup, connect, then a second connection to the same port
+			patterns = append(patterns, BehaviorPattern{
+				Name:          fmt.Sprintf("bench-sequence-%d", i),
+				Processes:     []ProcessPattern{{ID: "parent"}, {ID: "child", Match: name}},
+				Relationships: []RelationshipPattern{{Type: RelationshipSpawned, Parent: "parent", Child: "child"}},
+				Sequence: &SequencePattern{
+					Within: 2 * time.Minute,
+					Steps: []SequenceStep{
+						{Role: "child", Type: core.EventDNSQuery},
+						{Role: "child", Type: core.EventNetworkConnect, Capture: "first"},
+						{Role: "child", Type: core.EventNetworkConnect, Where: &MatchBlock{Fields: []FieldPredicate{
+							{Field: "remote_port", Predicate: Predicate{Eq: stringPtr("$first.remote_port")}},
+						}}},
+					},
+				},
+			})
+		}
+	}
+
+	return patterns
+}
+
 // benchWorld builds a process tree of 1,000 processes (100 parents with nine
 // children each) and a stream of 50,000 events spread across them at 100
 // events per second.
@@ -203,6 +271,20 @@ func BenchmarkEngineProcessPredicates(b *testing.B) {
 	}
 
 	benchmarkEngine(b, patterns, exclusions, true)
+}
+
+// BenchmarkEngineProcessTemporal is the same number of processes, events and
+// patterns, with the patterns using DESCENDANT relationships, count and
+// distinct thresholds, and sequences with captures.
+func BenchmarkEngineProcessTemporal(b *testing.B) {
+	patterns := benchTemporalPatternSet()
+	for _, pattern := range patterns {
+		if err := pattern.Validate(); err != nil {
+			b.Fatalf("pattern %q: %v", pattern.Name, err)
+		}
+	}
+
+	benchmarkEngine(b, patterns, nil, true)
 }
 
 func benchmarkEngine(b *testing.B, patterns []BehaviorPattern, exclusions []Exclusion, mixed bool) {

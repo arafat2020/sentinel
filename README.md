@@ -2,13 +2,14 @@
 
 A host-based telemetry and behavioral detection agent for Linux, macOS, and Windows. Sentinel collects process, network, DNS, and file events from the OS kernel, routes them through an in-process event bus, and runs a correlation engine that fires findings when multi-step behavioral patterns match.
 
-Everything is visible in a live terminal TUI with eight tabs — no external services required.
+Everything is visible in a live terminal TUI with nine tabs — no external services required.
 
 ---
 
 ## Features
 
-- **Process telemetry** — start/exit events, PID/PPID, executable path (all platforms via gopsutil)
+- **Process telemetry** — start/exec/exit events, PID/PPID, executable path. On Linux the kernel reports them as they happen (eBPF, or the netlink process connector), so processes that live for a millisecond are seen; elsewhere, and as a fallback, the process table is polled via gopsutil. See [Linux process collection](docs/linux-process-collector.md)
+- **Health view** — the active collectors, dropped and partial events, event-bus pressure and every limit the detection engine has hit
 - **Network telemetry** — TCP/UDP connection open/close with remote address and port
 - **DNS telemetry** — per-query domain, record type, resolver IP, attribution to originating process; captured across all active network interfaces simultaneously
 - **File telemetry** ⚠️ *under development* — create, write, delete, and rename events with path and PID
@@ -22,7 +23,7 @@ Everything is visible in a live terminal TUI with eight tabs — no external ser
 - **Password protection** — bcrypt-hashed password gate; prompted on first install and every subsequent launch
 - **Settings tab** — configure log retention and SSH remote-access kill-switch from inside the TUI
 - **Resources tab** — live, htop-style process table (PID, name, CPU %, resident memory) with system CPU and memory totals; display-only, never written to the database or the event bus
-- **Terminal TUI** — eight live tabs (Process · Network · DNS · File · Findings · Patterns · Settings · Resources) navigable by keyboard
+- **Terminal TUI** — nine live tabs (Process · Network · DNS · File · Findings · Patterns · Settings · Resources · Health) navigable by keyboard
 
 ---
 
@@ -173,6 +174,10 @@ Without the entitlement, file telemetry is silently skipped — all other tabs s
 | Flag | Description |
 |------|-------------|
 | `--headless` | Run without TUI; log findings to stdout (servers / systemd) |
+| `--process-collector` | How process events are collected: `auto` (default), `ebpf`, `proc-connector` or `poll`. `auto` tries them in that order and logs why any was skipped. Linux only; other platforms poll |
+| `--process-exec-grace` | How long after a fork an exec still counts as the process starting (default `50ms`) |
+| `--process-ringbuf-bytes` | Size of the eBPF ring buffer for process events (default 8 MiB) |
+| `--health-interval` | How often `--headless` logs a `HEALTH` line (default `60s`) |
 | `--reset-password` | Interactively reset the Sentinel password and exit |
 | `--query` | Query stored events and exit (see filters below) |
 | `--tab` | Filter `--query` by tab: `Process\|Network\|DNS\|File\|Findings` |
@@ -194,11 +199,12 @@ Without the entitlement, file telemetry is silently skipped — all other tabs s
 | `6` | Patterns tab (YAML behavioral pattern editor) |
 | `7` | Settings tab (retention · SSH kill-switch) |
 | `8` | Resources tab (live process monitor) |
+| `9` | Health tab (collectors, drops, engine limits) |
 | `←` / `→` | Cycle tabs left/right (wraps around) |
 | `Ctrl+C` | Quit |
 
-The number keys switch tabs from the telemetry tabs (1–5), from Resources, and
-from Settings while focus is on the tab bar. On the Patterns tab, and inside
+The number keys switch tabs from the telemetry tabs (1–5), from Resources and
+Health, and from Settings while focus is on the tab bar. On the Patterns tab, and inside
 the Settings form, digits are text input — use `←` / `→` there (after `Esc` in
 the Settings form).
 

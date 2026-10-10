@@ -791,3 +791,44 @@ func TestDraftPatternWithoutRolesStillLoads(t *testing.T) {
 		t.Fatalf("loaded %d patterns, want 2", len(loaded.Patterns))
 	}
 }
+
+// PROCESS_EXEC is accepted wherever an event type is: as a requirement with a
+// where block, and as a sequence step, with the fields of PROCESS_START.
+func TestProcessExecLoadsFromYAML(t *testing.T) {
+	set, err := LoadPatterns(writeFile(t, `patterns:
+    - name: shell-becomes-dropped-file
+      severity: HIGH
+      processes:
+        - id: shell
+          events:
+            - type: PROCESS_EXEC
+              where: { exe: { prefix: /tmp/ }, user: { not: root } }
+      sequence:
+        steps:
+          - { role: shell, type: FILE_CREATE, capture: dropped }
+          - role: shell
+            type: PROCESS_EXEC
+            where: { exe: { eq: $dropped.path } }
+    - name: bad-field
+      processes:
+        - id: p
+          events:
+            - type: PROCESS_EXEC
+              where: { domain: example.com }
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(set.Patterns) != 1 || set.Patterns[0].Name != "shell-becomes-dropped-file" {
+		t.Fatalf("loaded %d patterns: %+v", len(set.Patterns), set.Errors)
+	}
+	pattern := set.Patterns[0]
+	if pattern.Processes[0].Events[0].Type != core.EventProcessExec || pattern.Sequence.Steps[1].Type != core.EventProcessExec {
+		t.Errorf("event types = %q, %q", pattern.Processes[0].Events[0].Type, pattern.Sequence.Steps[1].Type)
+	}
+
+	if len(set.Errors) != 1 || !strings.Contains(set.Errors[0].Error(), "events[0] (PROCESS_EXEC): where.domain: unknown field (valid fields: cmdline, exe, name, user)") {
+		t.Errorf("errors = %v, want the fields of PROCESS_START offered for PROCESS_EXEC", set.Errors)
+	}
+}

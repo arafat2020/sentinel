@@ -15,6 +15,10 @@ type Evidence struct {
 	// Roles maps each role of the rule that produced the finding to the
 	// process that filled it.
 	Roles map[string]Process `json:"roles,omitempty"`
+	// PreviousImages lists, for each role whose process has replaced its
+	// program image with exec, the images it ran before the one shown in
+	// Roles, oldest first. Only the most recent few are kept.
+	PreviousImages map[string][]ProcessImage `json:"previous_images,omitempty"`
 	// Events are the events that made the rule match: the events of its
 	// sequence in order, then an example of each required event, then the
 	// most recent events counted towards each threshold. The list is

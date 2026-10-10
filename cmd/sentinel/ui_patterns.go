@@ -17,7 +17,7 @@ var severityOptions = []string{"INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"}
 
 // eventTypeOptions lists valid event types shown in dropdowns.
 var eventTypeOptions = []string{
-	"PROCESS_START", "PROCESS_EXIT", "NETWORK_CONNECT", "NETWORK_CLOSE",
+	"PROCESS_START", "PROCESS_EXEC", "PROCESS_EXIT", "NETWORK_CONNECT", "NETWORK_CLOSE",
 	"FILE_CREATE", "FILE_MODIFY", "FILE_DELETE", "FILE_RENAME",
 	"PERSISTENCE_CHANGE", "DNS_QUERY", "SCRIPT_EXECUTION",
 }

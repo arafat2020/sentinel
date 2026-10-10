@@ -5,8 +5,14 @@ import "time"
 type EventType string
 
 const (
-	EventProcessStart      EventType = "PROCESS_START"
-	EventProcessExit       EventType = "PROCESS_EXIT"
+	EventProcessStart EventType = "PROCESS_START"
+	EventProcessExit  EventType = "PROCESS_EXIT"
+	// EventProcessExec is a running process replacing its program image
+	// with execve. The process keeps its identity; its name, executable
+	// and command line change. Only event-driven process collectors report
+	// it: a process's first exec shortly after it is created is folded into
+	// its PROCESS_START instead.
+	EventProcessExec       EventType = "PROCESS_EXEC"
 	EventProcessSnapshot   EventType = "PROCESS_SNAPSHOT"
 	EventNetworkConnect    EventType = "NETWORK_CONNECT"
 	EventNetworkClose      EventType = "NETWORK_CLOSE"

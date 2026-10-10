@@ -56,9 +56,10 @@ type EventDef struct {
 
 // RelationshipDef is the YAML representation of a RelationshipPattern.
 type RelationshipDef struct {
-	Type   string `yaml:"type"`
-	Parent string `yaml:"parent"`
-	Child  string `yaml:"child"`
+	Type     string `yaml:"type"`
+	Parent   string `yaml:"parent"`
+	Child    string `yaml:"child"`
+	MaxDepth int    `yaml:"max_depth,omitempty"`
 }
 
 // RoleExclusionDef is the YAML representation of a RoleExclusion.
@@ -393,13 +394,14 @@ func convertProcessPattern(def ProcessPatternDef) (correlation.ProcessPattern, e
 
 func convertRelationship(def RelationshipDef) (correlation.RelationshipPattern, error) {
 	rt := correlation.RelationshipType(def.Type)
-	if rt != correlation.RelationshipSpawned {
+	if rt != correlation.RelationshipSpawned && rt != correlation.RelationshipDescendant {
 		return correlation.RelationshipPattern{}, fmt.Errorf("unknown relationship type %q", def.Type)
 	}
 	return correlation.RelationshipPattern{
-		Type:   rt,
-		Parent: def.Parent,
-		Child:  def.Child,
+		Type:     rt,
+		Parent:   def.Parent,
+		Child:    def.Child,
+		MaxDepth: def.MaxDepth,
 	}, nil
 }
 
@@ -430,9 +432,10 @@ func unconvertPattern(p correlation.BehaviorPattern) PatternDef {
 	rels := make([]RelationshipDef, len(p.Relationships))
 	for i, r := range p.Relationships {
 		rels[i] = RelationshipDef{
-			Type:   string(r.Type),
-			Parent: r.Parent,
-			Child:  r.Child,
+			Type:     string(r.Type),
+			Parent:   r.Parent,
+			Child:    r.Child,
+			MaxDepth: r.MaxDepth,
 		}
 	}
 

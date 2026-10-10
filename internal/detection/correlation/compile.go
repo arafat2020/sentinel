@@ -20,10 +20,16 @@ type compiledPattern struct {
 	relationships []roleLink
 	// maxFindings is the rule's findings-per-window limit, defaults applied.
 	maxFindings int
+	// deep is true when a relationship spans more than one generation, so a
+	// change anywhere in a process's ancestry can affect a match.
+	deep bool
 }
 
 type roleLink struct {
 	parent, child int
+	// depth is how many generations may separate the two: 1 for a direct
+	// parent and child.
+	depth int
 }
 
 // compiledRole is what a process must satisfy to fill a role.
@@ -126,10 +132,15 @@ func compilePattern(pattern BehaviorPattern) (*compiledPattern, error) {
 	}
 
 	for _, relationship := range pattern.Relationships {
-		compiled.relationships = append(compiled.relationships, roleLink{
+		link := roleLink{
 			parent: indexes[relationship.Parent],
 			child:  indexes[relationship.Child],
-		})
+			depth:  relationship.depth(),
+		}
+		if link.depth > 1 {
+			compiled.deep = true
+		}
+		compiled.relationships = append(compiled.relationships, link)
 	}
 
 	compiled.roles = roles

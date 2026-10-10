@@ -174,6 +174,10 @@ type world interface {
 	parentOf(child core.ProcessIdentity) (core.ProcessIdentity, bool)
 	// The each* methods stop when visit returns false.
 	eachChild(parent core.ProcessIdentity, visit func(core.ProcessIdentity) bool)
+	// eachDescendant visits the descendants of parent down to maxDepth
+	// generations. The walk is bounded; an implementation that cuts it
+	// short records that it did.
+	eachDescendant(parent core.ProcessIdentity, maxDepth int, visit func(core.ProcessIdentity) bool)
 	eachRelationship(visit func(parent, child core.ProcessIdentity) bool)
 	eachProcess(visit func(core.ProcessIdentity) bool)
 	chainsOf(core.ProcessIdentity) []*Chain
@@ -272,22 +276,27 @@ func (s *search) satisfy() {
 
 	switch {
 	case s.isBound[link.parent] && s.isBound[link.child]:
-		if actual, ok := s.world.parentOf(s.bound[link.child]); ok && actual == s.bound[link.parent] {
+		if s.isAncestor(s.bound[link.parent], s.bound[link.child], link.depth) {
 			s.satisfy()
 		}
 
 	case s.isBound[link.parent]:
-		s.world.eachChild(s.bound[link.parent], func(identity core.ProcessIdentity) bool {
+		visit := func(identity core.ProcessIdentity) bool {
 			s.try(link.child, identity)
 			return true
-		})
-
-	case s.isBound[link.child]:
-		if identity, ok := s.world.parentOf(s.bound[link.child]); ok {
-			s.try(link.parent, identity)
+		}
+		if link.depth == 1 {
+			s.world.eachChild(s.bound[link.parent], visit)
+		} else {
+			s.world.eachDescendant(s.bound[link.parent], link.depth, visit)
 		}
 
-	default:
+	case s.isBound[link.child]:
+		s.eachAncestor(s.bound[link.child], link.depth, func(identity core.ProcessIdentity) {
+			s.try(link.parent, identity)
+		})
+
+	case link.depth == 1:
 		// Nothing to extend from: start from the known relationships.
 		s.world.eachRelationship(func(parentID, childID core.ProcessIdentity) bool {
 			if s.bind(link.parent, parentID) {
@@ -296,7 +305,55 @@ func (s *search) satisfy() {
 			}
 			return true
 		})
+
+	default:
+		// Nothing to extend from, and the pairs are not listed anywhere:
+		// take each process as the descendant and look up its ancestry.
+		s.world.eachProcess(func(childID core.ProcessIdentity) bool {
+			if s.bind(link.child, childID) {
+				s.eachAncestor(childID, link.depth, func(identity core.ProcessIdentity) {
+					s.try(link.parent, identity)
+				})
+				s.unbind(link.child)
+			}
+			return true
+		})
 	}
+}
+
+// eachAncestor visits the ancestors of a process, nearest first, up to
+// maxDepth generations. The chain stops at the first process whose parent is
+// not known: ancestry is never assumed across a gap.
+func (s *search) eachAncestor(identity core.ProcessIdentity, maxDepth int, visit func(core.ProcessIdentity)) {
+	current := identity
+
+	for generation := 0; generation < maxDepth; generation++ {
+		parent, ok := s.world.parentOf(current)
+		if !ok {
+			return
+		}
+		visit(parent)
+		current = parent
+	}
+}
+
+// isAncestor reports whether ancestor is within maxDepth generations above
+// descendant.
+func (s *search) isAncestor(ancestor, descendant core.ProcessIdentity, maxDepth int) bool {
+	current := descendant
+
+	for generation := 0; generation < maxDepth; generation++ {
+		parent, ok := s.world.parentOf(current)
+		if !ok {
+			return false
+		}
+		if parent == ancestor {
+			return true
+		}
+		current = parent
+	}
+
+	return false
 }
 
 // nextRelationship picks an unsatisfied relationship pattern, preferring one
@@ -429,6 +486,10 @@ func (w *sliceWorld) eachChild(parent core.ProcessIdentity, visit func(core.Proc
 			return
 		}
 	}
+}
+
+func (w *sliceWorld) eachDescendant(parent core.ProcessIdentity, maxDepth int, visit func(core.ProcessIdentity) bool) {
+	walkDescendants(w.topology, parent, maxDepth, visit)
 }
 
 func (w *sliceWorld) eachRelationship(visit func(parent, child core.ProcessIdentity) bool) {

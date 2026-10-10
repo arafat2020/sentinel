@@ -69,6 +69,11 @@ func (p BehaviorPattern) UsesAdvancedFields() bool {
 	if len(p.Exclude) > 0 || p.MaxFindingsPerWindow != 0 {
 		return true
 	}
+	for _, relationship := range p.Relationships {
+		if relationship.Type != RelationshipSpawned {
+			return true
+		}
+	}
 	for _, role := range p.Processes {
 		if role.UsesAdvancedFields() {
 			return true
@@ -111,6 +116,21 @@ func (p BehaviorPattern) validateStructure() error {
 		}
 		if relationship.Parent == relationship.Child {
 			return fmt.Errorf("relationship makes role %q its own parent", relationship.Parent)
+		}
+	}
+
+	for i, relationship := range p.Relationships {
+		switch relationship.Type {
+		case RelationshipSpawned:
+			if relationship.MaxDepth != 0 {
+				return fmt.Errorf("relationships[%d]: max_depth applies to DESCENDANT, not SPAWNED", i)
+			}
+		case RelationshipDescendant:
+			if relationship.MaxDepth != 0 && (relationship.MaxDepth < 1 || relationship.MaxDepth > MaxDepthLimit) {
+				return fmt.Errorf("relationships[%d]: max_depth must be between 1 and %d, got %d", i, MaxDepthLimit, relationship.MaxDepth)
+			}
+		default:
+			return fmt.Errorf("relationships[%d]: unknown relationship type %q", i, relationship.Type)
 		}
 	}
 
@@ -177,6 +197,21 @@ type RelationshipPattern struct {
 	Type   RelationshipType
 	Parent string
 	Child  string
+	// MaxDepth is how many generations may separate parent and child in a
+	// DESCENDANT relationship. Zero means DefaultMaxDepth. It must be left
+	// zero for SPAWNED, which is always one generation.
+	MaxDepth int
+}
+
+// depth returns how many generations the relationship may span.
+func (r RelationshipPattern) depth() int {
+	if r.Type != RelationshipDescendant {
+		return 1
+	}
+	if r.MaxDepth == 0 {
+		return DefaultMaxDepth
+	}
+	return r.MaxDepth
 }
 
 type ConditionType string

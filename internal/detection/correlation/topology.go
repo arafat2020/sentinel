@@ -46,6 +46,46 @@ func (t *topology) unlink(child core.ProcessIdentity) {
 	}
 }
 
+// maxDescendantVisits bounds one walk down the tree, however deep and wide
+// the tree is.
+const maxDescendantVisits = 4096
+
+// walkDescendants visits the descendants of parent, down to maxDepth
+// generations, until visit returns false. It reports whether the walk was
+// cut short by maxDescendantVisits, in which case some descendants were not
+// visited.
+func walkDescendants(
+	t *topology,
+	parent core.ProcessIdentity,
+	maxDepth int,
+	visit func(core.ProcessIdentity) bool,
+) (truncated bool) {
+	visited := 0
+
+	var descend func(identity core.ProcessIdentity, depth int) bool
+	descend = func(identity core.ProcessIdentity, depth int) bool {
+		for child := range t.children[identity] {
+			if visited >= maxDescendantVisits {
+				truncated = true
+				return false
+			}
+			visited++
+
+			if !visit(child) {
+				return false
+			}
+			if depth < maxDepth && !descend(child, depth+1) {
+				return false
+			}
+		}
+		return true
+	}
+
+	descend(parent, 1)
+
+	return truncated
+}
+
 // remove deletes a process from the structure: its link to its parent and
 // its links to its children.
 func (t *topology) remove(identity core.ProcessIdentity) {

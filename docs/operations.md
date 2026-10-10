@@ -28,7 +28,7 @@ AMFI kills the binary on launch.
 sudo ./sentinel
 ```
 
-Full TUI with 7 tabs. Requires a real terminal (TTY).
+Full TUI with 8 tabs. Requires a real terminal (TTY).
 
 ### Headless — server / systemd
 
@@ -159,6 +159,11 @@ settings (key TEXT PRIMARY KEY, value TEXT)
 
 Press `7` or cycle with `←` / `→` to reach the Settings tab.
 
+Focus starts on the tab bar, so `←` / `→` and the number keys still switch
+tabs. Press `Enter` to step into the form and `Esc` to step back out. The
+`Ctrl+S` / `Ctrl+F` / `Ctrl+D` / `Ctrl+E` shortcuts work in both states; the
+hint line at the bottom of the tab shows the keys for the current one.
+
 ### Log retention
 
 Controls how long events are kept in `sentinel.db`.
@@ -244,3 +249,25 @@ requires BPF device access, which needs `sudo`.
 | `Ctrl+F` | Flush old events now |
 | `Ctrl+D` | Disable SSH (with confirmation) |
 | `Ctrl+E` | Enable SSH (with confirmation) |
+
+---
+
+## Resources tab (key `8`)
+
+A live process table with system CPU and memory totals, refreshed every 2
+seconds. Press `c` to sort by CPU and `m` to sort by RSS; move the highlight
+with the arrow keys, `PgUp` / `PgDn`, `Home` / `End`.
+
+- `CPU%` is per core (a process on two full cores shows `200.0`); the `CPU`
+  bar is the share of all cores. `RSS` is resident set size.
+- `—` means the value could not be read. It is never shown as zero.
+- CPU needs two samples: expect `—` for every process on the first refresh and
+  once for each newly started process.
+- Without root, macOS hides CPU and memory for other users' processes. Run
+  with `sudo` to see them.
+- Samples are not stored in `sentinel.db` and do not appear in `--query`
+  output. The tab is not available in `--headless` or `--desktop` mode.
+- Run and tested on macOS only; Linux and Windows builds compile but have not
+  been run.
+
+See the README's keyboard reference for the full key and column list.

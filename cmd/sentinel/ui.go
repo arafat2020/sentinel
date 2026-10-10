@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/arafat2020/sentinel/internal/core"
@@ -82,6 +83,13 @@ type UI struct {
 	patternsPage *PatternsPage
 	settingsPage *SettingsPage
 	resources    *ResourcesPage
+
+	// Resource snapshots are rendered by waking the event loop, never by
+	// waiting on it. resourceTick is the wake-up: an event recognised by
+	// pointer identity, so no real keystroke can be mistaken for it.
+	resourceTick    *tcell.EventKey
+	resourcePending atomic.Bool // a tick is queued and not yet handled
+	stopped         atomic.Bool // Stop was called or the event loop exited
 }
 
 // NewUI constructs the dashboard. Call SetPatternsPage and SetSettingsPage
@@ -89,6 +97,7 @@ type UI struct {
 func NewUI() *UI {
 	u := &UI{}
 	u.app = tview.NewApplication()
+	u.resourceTick = tcell.NewEventKey(tcell.KeyNUL, 0, tcell.ModNone)
 
 	for i := range u.views {
 		tv := tview.NewTextView().
@@ -129,6 +138,9 @@ func NewUI() *UI {
 			u.tabBarWidth = w
 			u.scrollTabBar()
 		}
+		if u.settingsPage != nil {
+			u.settingsPage.SyncHint()
+		}
 		return false
 	})
 
@@ -137,21 +149,28 @@ func NewUI() *UI {
 		active := u.active
 		u.mu.Unlock()
 
+		// Wake-up from UpdateResources. Returning nil makes tview redraw.
+		if event == u.resourceTick {
+			u.resourcePending.Store(false)
+			if active == tabResources {
+				u.resources.Render()
+			}
+			return nil
+		}
+
 		// Every focusable widget on the Settings form needs the arrow keys,
 		// so the form would otherwise trap the user on that tab. Arriving on
-		// Settings therefore leaves focus on the tab bar; Enter steps into
-		// the form and Esc steps back out.
-		if active == tabSettings && u.settingsPage != nil {
-			focus := u.app.GetFocus()
-			switch {
-			case focus == u.tabBar:
-				switch event.Key() {
-				case tcell.KeyEnter, tcell.KeyTab, tcell.KeyDown:
-					u.app.SetFocus(u.pages)
-					return nil
-				}
-			case event.Key() == tcell.KeyEscape && u.settingsPage.FormHasFocus():
-				u.app.SetFocus(u.tabBar)
+		// Settings therefore leaves focus on the tab bar, where ←/→ and the
+		// digits keep working and the page's shortcuts are still honoured.
+		// Enter steps into the form; Esc (the form's cancel action) steps
+		// back out.
+		if active == tabSettings && u.settingsPage != nil && u.app.GetFocus() == u.tabBar {
+			switch event.Key() {
+			case tcell.KeyEnter, tcell.KeyTab, tcell.KeyDown:
+				u.app.SetFocus(u.pages)
+				return nil
+			}
+			if u.settingsPage.HandleShortcut(event) {
 				return nil
 			}
 		}
@@ -198,15 +217,46 @@ func (u *UI) SetPatternsPage(pp *PatternsPage) {
 // SetSettingsPage wires the settings editor. Call before Run.
 func (u *UI) SetSettingsPage(sp *SettingsPage) {
 	u.settingsPage = sp
-	sp.SetAppRoot(u.root)
+	sp.SetHost(settingsHost{
+		restore: u.restoreFromSettingsModal,
+		leave:   func() { u.app.SetFocus(u.tabBar) },
+	})
 	u.pages.AddPage(tabNames[tabSettings], sp.Root(), true, false)
 }
 
-// Run starts the tview event loop. Blocks until Stop is called.
-func (u *UI) Run() error { return u.app.Run() }
+// restoreFromSettingsModal puts the dashboard back after a Settings modal
+// closes. Focus goes to whichever tab is showing now: a modal reporting the
+// result of a background action must not drag focus back into a hidden
+// Settings form. Must be called on the event loop.
+func (u *UI) restoreFromSettingsModal(toForm bool) {
+	// Focusing the root hands focus to the visible page.
+	u.app.SetRoot(u.root, true)
 
-// Stop halts the tview event loop.
-func (u *UI) Stop() { u.app.Stop() }
+	u.mu.Lock()
+	active := u.active
+	u.mu.Unlock()
+
+	if active == tabSettings && !toForm {
+		u.app.SetFocus(u.tabBar)
+	}
+}
+
+// Run starts the tview event loop. Blocks until Stop is called or the loop
+// ends on its own (Ctrl+C, terminal error).
+func (u *UI) Run() error {
+	err := u.app.Run()
+	u.stopped.Store(true)
+	return err
+}
+
+// Stop halts the tview event loop. Calling it again, or after the loop has
+// already ended, does nothing.
+func (u *UI) Stop() {
+	if u.stopped.Swap(true) {
+		return
+	}
+	u.app.Stop()
+}
 
 func (u *UI) switchTab(idx int) {
 	u.mu.Lock()
@@ -332,7 +382,14 @@ func (u *UI) AddFinding(line string) { u.append(tabFindings, "red", line) }
 
 // UpdateResources hands a fresh resource snapshot to the Resources tab.
 // Goroutine-safe. Snapshots are display-only: they are neither persisted nor
-// kept in a ring buffer, and a redraw is only queued while the tab is visible.
+// kept in a ring buffer.
+//
+// It never waits for the event loop. tview's QueueUpdate blocks until the
+// loop has run the update, which is forever once the loop has exited, so the
+// caller's goroutine could not shut down. Instead the snapshot is stored and,
+// while the tab is visible, the loop is woken with a single queued event;
+// further snapshots that arrive before it is handled ride along with it.
+// Once the UI has stopped the snapshot is simply dropped.
 func (u *UI) UpdateResources(s *core.ResourceSnapshot) {
 	u.resources.SetSnapshot(s)
 
@@ -340,7 +397,13 @@ func (u *UI) UpdateResources(s *core.ResourceSnapshot) {
 	visible := u.active == tabResources
 	u.mu.Unlock()
 
-	if visible {
-		u.app.QueueUpdateDraw(u.resources.Render)
+	if !visible || u.stopped.Load() {
+		return
+	}
+
+	// At most one tick is ever outstanding, so this send finds room in the
+	// event queue unless ~100 real input events are already backed up.
+	if u.resourcePending.CompareAndSwap(false, true) {
+		u.app.QueueEvent(u.resourceTick)
 	}
 }

@@ -569,6 +569,23 @@ func TestLoadPatternsReportsStructuralErrors(t *testing.T) {
     - name: bad
       processes: not-a-list
 `, "cannot unmarshal"},
+		"unknown event type in a requirement": {`patterns:
+    - name: bad
+      processes:
+        - id: p
+          events:
+            - type: DNS_QUERY
+            - type: DNS_LOOKUP
+`, `role "p": events[1]: unknown event type "DNS_LOOKUP"`},
+		"unknown event type in a sequence step": {`patterns:
+    - name: bad
+      processes:
+        - id: p
+      sequence:
+        steps:
+          - {role: p, type: FILE_CREATE}
+          - {role: p, type: PROCESS_RUN}
+`, `steps[1]: unknown event type "PROCESS_RUN"`},
 	}
 
 	for name, c := range cases {

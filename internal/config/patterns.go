@@ -136,14 +136,23 @@ func convertPattern(def PatternDef) (correlation.BehaviorPattern, error) {
 		rels = append(rels, rp)
 	}
 
-	return correlation.BehaviorPattern{
+	pattern := correlation.BehaviorPattern{
 		Name:          def.Name,
 		Severity:      core.Severity(def.Severity),
 		Title:         def.Title,
 		Description:   def.Description,
 		Processes:     procs,
 		Relationships: rels,
-	}, nil
+	}
+
+	// Reject patterns whose roles and relationships cannot be matched
+	// unambiguously, rather than loading a rule that silently never fires
+	// or fires on unrelated processes.
+	if err := pattern.Validate(); err != nil {
+		return correlation.BehaviorPattern{}, err
+	}
+
+	return pattern, nil
 }
 
 func convertProcessPattern(def ProcessPatternDef) (correlation.ProcessPattern, error) {

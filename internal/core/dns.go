@@ -3,17 +3,17 @@ package core
 import "time"
 
 type DNSQuery struct {
-	Timestamp time.Time
+	Timestamp time.Time `json:"timestamp,omitzero"`
 
-	PID  int32
-	PPID int32
+	PID  int32 `json:"pid"`
+	PPID int32 `json:"ppid"`
 
-	Domain string
-	Type   string
+	Domain string `json:"domain,omitempty"`
+	Type   string `json:"type,omitempty"`
 
-	Resolver string
+	Resolver string `json:"resolver,omitempty"`
 
-	Process *Process
+	Process *Process `json:"process,omitempty"`
 }
 
 type DNSQueryIdentity struct {

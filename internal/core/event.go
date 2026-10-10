@@ -20,14 +20,14 @@ const (
 )
 
 type Event struct {
-	ID        string
-	Timestamp time.Time
-	Type      EventType
-	HostID    string
-	OS        string
-	Process   *Process
-	Network   *NetworkConnection
-	Metadata  map[string]any
-	DNS       *DNSQuery
-	File      *FileEvent
+	ID        string             `json:"id,omitempty"`
+	Timestamp time.Time          `json:"timestamp,omitzero"`
+	Type      EventType          `json:"type"`
+	HostID    string             `json:"host_id,omitempty"`
+	OS        string             `json:"os,omitempty"`
+	Process   *Process           `json:"process,omitempty"`
+	Network   *NetworkConnection `json:"network,omitempty"`
+	Metadata  map[string]any     `json:"metadata,omitempty"`
+	DNS       *DNSQuery          `json:"dns,omitempty"`
+	File      *FileEvent         `json:"file,omitempty"`
 }

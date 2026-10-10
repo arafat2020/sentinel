@@ -134,7 +134,7 @@ func main() {
 
 	// ── Correlation engine ────────────────────────────────────────────────────
 
-	corrEngine := correlation.NewEngine(5 * time.Minute)
+	corrEngine := correlation.NewEngine(correlation.DefaultWindow)
 	corrEngine.SetPatterns(patternSet.Patterns)
 	// Invalid exclusions were already reported with the load errors.
 	_ = corrEngine.SetExclusions(patternSet.Exclusions)

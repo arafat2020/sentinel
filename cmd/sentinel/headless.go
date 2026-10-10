@@ -59,7 +59,7 @@ func runHeadless(ctx context.Context, patterns config.PatternSet, patternsPath s
 
 	// ── Correlation engine ───────────────────────────────────────────────────
 
-	corrEngine := correlation.NewEngine(5 * time.Minute)
+	corrEngine := correlation.NewEngine(correlation.DefaultWindow)
 	corrEngine.SetPatterns(patterns.Patterns)
 	_ = corrEngine.SetExclusions(patterns.Exclusions)
 

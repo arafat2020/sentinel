@@ -279,3 +279,75 @@ func TestIncrementalEvaluationMatchesFullEvaluationWithExec(t *testing.T) {
 		}
 	}
 }
+
+// Exited processes are remembered for a window, but only so many at once.
+// Beyond the cap the oldest are forgotten early, and counted.
+func TestTombstonesAreCapped(t *testing.T) {
+	clock := &fakeClock{t: epoch}
+	h := &harness{Engine: NewEngine(testWindow, WithClock(clock.now), WithMaxTombstones(3)), clock: clock}
+	h.SetPatterns([]BehaviorPattern{{
+		Name:          "a-spawned-b",
+		Processes:     []ProcessPattern{named("parent", "a"), named("child", "b")},
+		Relationships: []RelationshipPattern{spawned("parent", "child")},
+	}})
+
+	// A long-lived parent, and five children that each exit at once.
+	parent := proc(1, 0, "a", at(0))
+	h.start(parent, at(0))
+	h.detect(at(0))
+
+	for i := int32(0); i < 5; i++ {
+		child := proc(100+i, 1, "c", at(time.Duration(i+1)*time.Second))
+		h.start(child, at(time.Duration(i+1)*time.Second))
+		h.exit(child, at(time.Duration(i+1)*time.Second))
+	}
+
+	metrics := h.Metrics()
+	if metrics.Tombstones != 3 || metrics.TombstonesEvicted != 2 {
+		t.Fatalf("tombstones %d, evicted %d; want 3 kept and 2 forgotten", metrics.Tombstones, metrics.TombstonesEvicted)
+	}
+	if metrics.Processes != 4 {
+		t.Fatalf("engine knows %d processes, want the parent and three tombstones", metrics.Processes)
+	}
+
+	// The oldest were the ones forgotten; the newest are still known.
+	if h.ChainsForProcess(proc(100, 1, "c", at(time.Second)).Identity()) != nil {
+		t.Error("the first process to exit is still remembered")
+	}
+	if h.ChainsForProcess(proc(104, 1, "c", at(5*time.Second)).Identity()) == nil {
+		t.Error("the last process to exit was forgotten")
+	}
+
+	// A running process is never forgotten, however many exit after it, and
+	// still matches.
+	h.start(proc(200, 1, "b", at(6*time.Second)), at(6*time.Second))
+	if got := findingKeys(h.detect(at(6 * time.Second))); got != "a-spawned-b:1>200" {
+		t.Fatalf("findings = %q", got)
+	}
+
+	// The window still removes tombstones, and the count follows.
+	h.detect(at(6*time.Second + 2*testWindow))
+	h.start(proc(300, 1, "c", at(6*time.Second+2*testWindow)), at(6*time.Second+2*testWindow))
+	h.sweep(at(6*time.Second + 2*testWindow))
+	if got := h.Metrics().Tombstones; got != 0 {
+		t.Errorf("%d tombstones after the window passed, want 0", got)
+	}
+}
+
+// Below the cap nothing changes: every exited process is kept for the window.
+func TestTombstoneCapDoesNotApplyBelowIt(t *testing.T) {
+	h := newHarness(testWindow)
+
+	for i := int32(0); i < 500; i++ {
+		p := proc(1000+i, 1, "c", at(time.Duration(i)*time.Millisecond))
+		h.start(p, at(time.Duration(i)*time.Millisecond))
+		h.exit(p, at(time.Duration(i)*time.Millisecond))
+		// A second exit for the same process is not a second tombstone.
+		h.exit(p, at(time.Duration(i)*time.Millisecond))
+	}
+
+	metrics := h.Metrics()
+	if metrics.Tombstones != 500 || metrics.TombstonesEvicted != 0 || metrics.Processes != 500 {
+		t.Fatalf("metrics = %+v", metrics)
+	}
+}

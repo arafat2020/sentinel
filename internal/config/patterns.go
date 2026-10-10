@@ -81,6 +81,9 @@ type PatternSet struct {
 	Exclusions []correlation.Exclusion
 	// Errors has one entry per pattern or exclusion that was left out.
 	Errors []PatternError
+	// Warnings describe things in the file that were ignored without
+	// leaving anything out, such as an unknown top-level key.
+	Warnings []string
 }
 
 // PatternError explains why one pattern or exclusion in a file was rejected.
@@ -141,6 +144,7 @@ func parsePatterns(data []byte) (PatternSet, error) {
 
 	set := PatternSet{
 		Patterns: make([]correlation.BehaviorPattern, 0, len(raw.Patterns)),
+		Warnings: topLevelWarnings(data),
 	}
 
 	for i := range raw.Patterns {
@@ -167,6 +171,12 @@ func parsePatterns(data []byte) (PatternSet, error) {
 // decodePattern converts one entry of the patterns list. The name is
 // returned even on failure, when it could be read, for the error report.
 func decodePattern(node *yaml.Node) (correlation.BehaviorPattern, string, error) {
+	// A misspelt key would otherwise be dropped in silence, and the pattern
+	// would load meaning something other than what was written.
+	if err := checkKeys(node, patternKeys, ""); err != nil {
+		return correlation.BehaviorPattern{}, nameOf(node), err
+	}
+
 	var def PatternDef
 	if err := node.Decode(&def); err != nil {
 		return correlation.BehaviorPattern{}, nameOf(node), err
@@ -188,6 +198,10 @@ func nameOf(node *yaml.Node) string {
 }
 
 func decodeExclusion(node *yaml.Node) (correlation.Exclusion, error) {
+	if err := checkKeys(node, exclusionKeys, ""); err != nil {
+		return correlation.Exclusion{}, err
+	}
+
 	var def ExclusionDef
 	if err := node.Decode(&def); err != nil {
 		return correlation.Exclusion{}, err

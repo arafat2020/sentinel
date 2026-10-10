@@ -393,3 +393,94 @@ func TestMatcherMatchPattern(t *testing.T) {
 		t.Fatal("expected pattern to match")
 	}
 }
+
+func eventChain(base time.Time, process *core.Process, types ...core.EventType) *Chain {
+	var chain *Chain
+
+	for i, eventType := range types {
+		event := core.Event{
+			Type:      eventType,
+			Timestamp: base.Add(time.Duration(i) * time.Second),
+			Process:   process,
+		}
+		if chain == nil {
+			chain = NewChain(event)
+			continue
+		}
+		chain.Add(event)
+	}
+
+	return chain
+}
+
+func TestMatcherOrderedEvents(t *testing.T) {
+	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	process := core.Process{PID: 100, StartTime: base}
+	matcher := NewMatcher()
+
+	required := []EventPattern{
+		{Type: core.EventDNSQuery},
+		{Type: core.EventNetworkConnect},
+	}
+	ordered := ProcessPattern{ID: "p", Events: required, Ordered: true}
+	unordered := ProcessPattern{ID: "p", Events: required}
+
+	inOrder := eventChain(base, &process, core.EventProcessStart, core.EventDNSQuery, core.EventFileCreate, core.EventNetworkConnect)
+	reversed := eventChain(base, &process, core.EventProcessStart, core.EventNetworkConnect, core.EventDNSQuery)
+
+	if !matcher.MatchEvents(ordered, inOrder) {
+		t.Error("ordered pattern should match events in order")
+	}
+	if matcher.MatchEvents(ordered, reversed) {
+		t.Error("ordered pattern should reject reversed events")
+	}
+	if !matcher.MatchEvents(unordered, inOrder) || !matcher.MatchEvents(unordered, reversed) {
+		t.Error("unordered pattern should match either order")
+	}
+
+	// An ordered pattern with nothing to require is satisfied, like an
+	// unordered one.
+	if !matcher.MatchEvents(ProcessPattern{ID: "p", Ordered: true}, inOrder) {
+		t.Error("ordered pattern without events should match")
+	}
+}
+
+func TestMatcherEventsAfterCutoff(t *testing.T) {
+	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	process := core.Process{PID: 100, StartTime: base}
+	matcher := NewMatcher()
+
+	// DNS at +0s, connect at +1s.
+	chain := eventChain(base, &process, core.EventDNSQuery, core.EventNetworkConnect)
+	both := ProcessPattern{ID: "p", Events: []EventPattern{
+		{Type: core.EventDNSQuery},
+		{Type: core.EventNetworkConnect},
+	}}
+
+	if !matcher.MatchEventsAfter(both, chain, base.Add(-time.Second)) {
+		t.Error("both events are after the cutoff: should match")
+	}
+	// The cutoff is exclusive: an event exactly at it does not count.
+	if matcher.MatchEventsAfter(both, chain, base) {
+		t.Error("the DNS query is at the cutoff: should not match")
+	}
+	if !matcher.MatchEvents(both, chain) {
+		t.Error("MatchEvents ignores age and should still match")
+	}
+	if matcher.MatchEventsAfter(both, nil, base) {
+		t.Error("nil chain should not match")
+	}
+}
+
+func TestMatcherProcessWithoutEventsNeedsNoChain(t *testing.T) {
+	matcher := NewMatcher()
+
+	if !matcher.MatchAnyChain(ProcessPattern{ID: "p"}, nil) {
+		t.Error("a pattern requiring no events should match a process with no chains")
+	}
+
+	needsConnect := ProcessPattern{ID: "p", Events: []EventPattern{{Type: core.EventNetworkConnect}}}
+	if matcher.MatchAnyChain(needsConnect, nil) {
+		t.Error("a pattern requiring an event should not match a process with no chains")
+	}
+}

@@ -99,6 +99,51 @@ if ! ldconfig -p 2>/dev/null | grep -q "libpcap"; then
   fi
 fi
 
+# The Linux release also links the optional Fyne desktop UI. These shared
+# libraries are required by the loader even when Sentinel runs headless.
+GUI_LIBS=(
+  libGL.so.1 libEGL.so.1 libGLESv2.so.2
+  libX11.so.6 libXext.so.6 libXcursor.so.1 libXrandr.so.2
+  libXinerama.so.1 libXi.so.6 libXxf86vm.so.1
+  libxkbcommon.so.0 libwayland-client.so.0
+)
+LD_CACHE="$(ldconfig -p 2>/dev/null || true)"
+MISSING_GUI_LIBS=()
+for lib in "${GUI_LIBS[@]}"; do
+  if ! grep -Fq "$lib" <<<"$LD_CACHE"; then
+    MISSING_GUI_LIBS+=("$lib")
+  fi
+done
+
+if [[ ${#MISSING_GUI_LIBS[@]} -gt 0 ]]; then
+  red "Warning: Sentinel's Linux binary is missing GUI runtime libraries: ${MISSING_GUI_LIBS[*]}"
+  red "         These libraries are required even for --headless; no display server is needed."
+  if command -v apt-get >/dev/null 2>&1; then
+    read -r -p "Install the required runtime libraries now? [Y/n] " ans
+    if [[ "${ans,,}" != "n" ]]; then
+      apt-get update -qq
+      apt-get install -y \
+        libgl1 libegl1 libgles2 \
+        libx11-6 libxext6 libxcursor1 libxrandr2 \
+        libxinerama1 libxi6 libxxf86vm1 \
+        libxkbcommon0 libwayland-client0 >/dev/null
+      green "Linux GUI runtime libraries installed"
+    fi
+  elif command -v dnf >/dev/null 2>&1; then
+    read -r -p "Install the required runtime libraries now? [Y/n] " ans
+    if [[ "${ans,,}" != "n" ]]; then
+      dnf install -y \
+        mesa-libGL mesa-libEGL mesa-libGLES \
+        libX11 libXext libXcursor libXrandr \
+        libXinerama libXi libXxf86vm \
+        libxkbcommon wayland >/dev/null
+      green "Linux GUI runtime libraries installed"
+    fi
+  else
+    red "Install the missing runtime libraries manually for your distribution."
+  fi
+fi
+
 # ── process collector check ───────────────────────────────────────────────────
 # Sentinel picks how it watches processes at startup (--process-collector=auto):
 # eBPF if the kernel supports it, else the netlink process connector, else

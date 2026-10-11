@@ -115,6 +115,26 @@ exclusions:                       # optional; see "Exclusions"
 
 ---
 
+## Shipped default patterns
+
+New patterns files include a small starter set:
+
+- A network-active process spawning a Python process that also connects.
+- A Node.js process spawning Python, reported at `MEDIUM` severity because
+  some development and build tools do this legitimately.
+- A shell up to four generations below a known web server connecting on a
+  non-standard remote port.
+- A related downloader creating a file under `/tmp` or `/dev/shm`, followed
+  within one minute by a child executing that exact file.
+
+The last two rules are high-signal starting points, not proof of compromise.
+The file-drop rule depends on file and process telemetry being available; the
+temporary paths are Linux-specific. Existing `configs/patterns.yaml` files are
+preserved and are not automatically merged with new shipped defaults.
+
+These rules use fixed predicates and thresholds, not a learned per-host
+baseline. Tune names, paths, and exclusions for the services on each host.
+
 ## Matching a process: `match`
 
 A `match` block lists process fields and what each must look like. **All

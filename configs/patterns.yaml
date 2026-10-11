@@ -18,9 +18,9 @@ patterns:
           parent: parent
           child: child
     - name: suspicious-child-process
-      severity: HIGH
-      title: Suspicious child process
-      description: A node process spawned a Python interpreter.
+      severity: MEDIUM
+      title: Node process spawned Python
+      description: A Node.js process spawned a Python interpreter. This can be expected for some tooling; review the process details before treating it as malicious.
       processes:
         - id: parent
           match:
@@ -34,3 +34,63 @@ patterns:
         - type: SPAWNED
           parent: parent
           child: child
+    - name: webshell-outbound-any-depth
+      severity: HIGH
+      title: Shell below a web server made an unusual outbound connection
+      description: A shell up to four generations below a web server connected on a non-standard remote port.
+      processes:
+        - id: web
+          match:
+            name: {in: [nginx, apache2, httpd, caddy], nocase: true}
+          events: []
+        - id: shell
+          match:
+            name: {regex: '^(ba|da|z|k)?sh$'}
+          events:
+            - type: NETWORK_CONNECT
+              where:
+                remote_port: {gt: 0, not: {in: [80, 443, 53]}}
+      relationships:
+        - type: DESCENDANT
+          parent: web
+          child: shell
+          max_depth: 4
+    - name: network-file-drop-execute
+      severity: HIGH
+      title: Downloaded file was executed
+      description: A process opened a connection with known remote-port details, created a file in a writable temporary directory, and a related process executed that exact file within one minute.
+      processes:
+        - id: launcher
+          conditions: []
+          events: []
+        - id: downloader
+          conditions: []
+          events: []
+        - id: payload
+          conditions: []
+          events: []
+      relationships:
+        - type: SPAWNED
+          parent: launcher
+          child: downloader
+        - type: SPAWNED
+          parent: launcher
+          child: payload
+      sequence:
+        within: 60s
+        steps:
+            - role: downloader
+              type: NETWORK_CONNECT
+              where:
+                remote_port: {gt: 0}
+            - role: downloader
+              type: FILE_CREATE
+              where:
+                any_of:
+                    - path: {glob: /tmp/**}
+                    - path: {glob: /dev/shm/**}
+              capture: dropped
+            - role: payload
+              type: PROCESS_START
+              where:
+                exe: {eq: $dropped.path}

@@ -237,6 +237,10 @@ func NewUI() *UI {
 // drawn. Call before Run.
 func (u *UI) SetHealth(text func() string) { u.health.text = text }
 
+// SetHealthReport gives the Health tab its report, which it lays out for the
+// width of the terminal. Call before Run.
+func (u *UI) SetHealthReport(report func() healthReport) { u.health.report = report }
+
 // SetStore attaches the SQLite store. Call before Run.
 func (u *UI) SetStore(s *store.Store) { u.store = s }
 

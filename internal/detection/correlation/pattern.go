@@ -304,8 +304,19 @@ func DefaultPatterns() []BehaviorPattern {
 				},
 			},
 		},
-		// This was a rule written in Go until it could be said here.
-		{
+	}
+}
+
+func stringPtr(s string) *string { return &s }
+
+// ShippedPatterns are the patterns written to a new patterns file, and used
+// when the file cannot be read: DefaultPatterns, and the patterns that
+// replace detections which used to be written in Go.
+func ShippedPatterns() []BehaviorPattern {
+	return append(DefaultPatterns(),
+		// A node process spawning Python: until it could be said here,
+		// this was SuspiciousChildProcessRule in internal/detection/process.
+		BehaviorPattern{
 			Name:        "suspicious-child-process",
 			Severity:    core.SeverityHigh,
 			Title:       "Suspicious child process",
@@ -322,6 +333,7 @@ func DefaultPatterns() []BehaviorPattern {
 				},
 				{
 					ID: "child",
+					// python, python3, python3.12, ...
 					Match: &MatchBlock{
 						Fields: []FieldPredicate{
 							{Field: "name", Predicate: Predicate{Regex: stringPtr(`^python[0-9.]*$`)}},
@@ -331,14 +343,8 @@ func DefaultPatterns() []BehaviorPattern {
 			},
 
 			Relationships: []RelationshipPattern{
-				{
-					Type:   RelationshipSpawned,
-					Parent: "parent",
-					Child:  "child",
-				},
+				{Type: RelationshipSpawned, Parent: "parent", Child: "child"},
 			},
 		},
-	}
+	)
 }
-
-func stringPtr(s string) *string { return &s }

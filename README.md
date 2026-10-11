@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="sentinel-logo.svg" alt="Sentinel shield and telemetry pulse" width="88">
+</p>
+
 # Sentinel
 
 A host-based telemetry and behavioral detection agent for Linux, macOS, and Windows. Sentinel collects process, network, DNS, and file events from the OS kernel, routes them through an in-process event bus, and runs a correlation engine that fires findings when multi-step behavioral patterns match.

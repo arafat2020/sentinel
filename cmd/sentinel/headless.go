@@ -12,12 +12,9 @@ import (
 	"github.com/arafat2020/sentinel/internal/detection/correlation"
 	"github.com/arafat2020/sentinel/internal/eventbus"
 	"github.com/arafat2020/sentinel/internal/finding"
-	"github.com/arafat2020/sentinel/internal/monitor"
 	"github.com/arafat2020/sentinel/internal/store"
 
-	networkcollector "github.com/arafat2020/sentinel/internal/collector/network"
 	processCollector "github.com/arafat2020/sentinel/internal/collector/process"
-	networkdetector "github.com/arafat2020/sentinel/internal/detection/network"
 	processDetector "github.com/arafat2020/sentinel/internal/detection/process"
 )
 
@@ -44,7 +41,8 @@ func runHeadless(ctx context.Context, patterns config.PatternSet, patternsPath s
 		fmt.Fprintf(os.Stderr, "sentinel: %v\n", err)
 		os.Exit(1)
 	}
-	for _, line := range collection.Describe() {
+	network := mustOpenNetwork(collectors, collection)
+	for _, line := range append(collection.Describe(), network.Describe()...) {
 		logger.Print(line)
 	}
 
@@ -117,10 +115,6 @@ func runHeadless(ctx context.Context, patterns config.PatternSet, patternsPath s
 
 	// ── Platform-neutral monitors ────────────────────────────────────────────
 
-	netCollector := networkcollector.NewCollector()
-	netDetector := networkdetector.NewLifecycleDetector()
-	netMonitor := monitor.NewNetworkMonitor(netCollector, netDetector, 2*time.Second, bus)
-
 	// Changes to the patterns file are applied without a restart. What
 	// loads is used; what does not is logged.
 	patternFile := newPatternStore(patternsPath, corrEngine, patterns, patternErr)
@@ -139,13 +133,16 @@ func runHeadless(ctx context.Context, patterns config.PatternSet, patternsPath s
 	}
 
 	bus.Start(ctx)
-	collection.Start(ctx, bus, lifecycleDetector, coordinator, corrEngine, func(message string) {
+	logger.Printf("sequence order tolerance defaults to %s", applyOrderTolerance(corrEngine, collection, network))
+	fellBack := func(message string) {
 		logger.Print(message)
-	})
-	go netMonitor.Run(ctx)
+		logger.Printf("sequence order tolerance defaults to %s", applyOrderTolerance(corrEngine, collection, network))
+	}
+	collection.Start(ctx, bus, lifecycleDetector, coordinator, corrEngine, fellBack)
+	network.Start(ctx, bus, fellBack)
 
 	// One line a minute says whether Sentinel is keeping up.
-	report := &health{collection: collection, bus: bus, engine: corrEngine, patterns: patternFile}
+	report := &health{collection: collection, network: network, bus: bus, engine: corrEngine, patterns: patternFile}
 	go func() {
 		interval := *collectors.healthInterval
 		if interval <= 0 {

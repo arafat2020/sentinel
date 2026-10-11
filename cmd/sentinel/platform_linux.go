@@ -30,7 +30,14 @@ func buildPlatformMonitors(
 
 	// --- DNS collector (libpcap on "any" interface) ---
 	socketLookup := dnscollector.NewLinuxSocketLookup()
-	attributor := dnscollector.NewLinuxAttributor(socketLookup, processResolver)
+	// When the network collector records in the kernel which process sent
+	// from which port, that is asked first: it still knows a resolver that
+	// has already exited, which the socket table does not.
+	var portOwner dnscollector.PortOwner
+	if dnsPortOwner != nil {
+		portOwner = dnsPortOwner
+	}
+	attributor := dnscollector.NewLinuxAttributorWithPortOwner(socketLookup, processResolver, portOwner)
 
 	dnsCollector, err := dnscollector.NewLinuxCollector("any", attributor)
 	if err != nil {

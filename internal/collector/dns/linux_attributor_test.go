@@ -5,7 +5,9 @@ package dns
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/arafat2020/sentinel/internal/core"
 )
@@ -325,4 +327,84 @@ func TestLinuxAttributorNilQuery(t *testing.T) {
 	if processResolver.lastPID != 0 {
 		t.Fatalf("expected resolver not to be called, got PID %d", processResolver.lastPID)
 	}
+}
+
+// What the kernel recorded when the packet was sent is asked first; the
+// socket table only when it knows nothing.
+func TestLinuxAttributorAsksThePortOwnerFirst(t *testing.T) {
+	recorded := core.Process{PID: 4242, Name: "getent", StartTime: time.Unix(1700000000, 0)}
+	asked := []string{}
+
+	owner := func(protocol string, port uint16) (core.Process, bool) {
+		asked = append(asked, fmt.Sprintf("%s/%d", protocol, port))
+		if protocol == "udp" && port == 40000 {
+			return recorded, true
+		}
+		if protocol == "tcp" && port == 40001 {
+			return core.Process{PID: 77, Name: "dig"}, true
+		}
+		return core.Process{}, false
+	}
+
+	table := &countingLookup{owners: map[uint32]uint32{40002: 99}}
+	attributor := NewLinuxAttributorWithPortOwner(table, nil, owner)
+
+	// Known to the kernel map: the socket table is not consulted, and the
+	// whole process comes back, not just a PID.
+	query := &core.DNSQuery{Domain: "a.example"}
+	if err := attributor.Attribute(context.Background(), query, "127.0.0.1", 40000); err != nil {
+		t.Fatal(err)
+	}
+	if query.PID != 4242 || query.Process == nil || query.Process.Identity() != recorded.Identity() || table.calls != 0 {
+		t.Errorf("query = %+v (process %+v), socket table asked %d times", query, query.Process, table.calls)
+	}
+
+	// A query over TCP is found under tcp.
+	query = &core.DNSQuery{Domain: "b.example"}
+	attributor.Attribute(context.Background(), query, "127.0.0.1", 40001)
+	if query.PID != 77 {
+		t.Errorf("TCP query attributed to %d", query.PID)
+	}
+
+	// Unknown to the map: the socket table answers.
+	query = &core.DNSQuery{Domain: "c.example"}
+	attributor.Attribute(context.Background(), query, "127.0.0.1", 40002)
+	if query.PID != 99 || table.calls != 1 {
+		t.Errorf("fallback: pid %d, socket table asked %d times", query.PID, table.calls)
+	}
+
+	// Unknown to both.
+	query = &core.DNSQuery{Domain: "d.example"}
+	attributor.Attribute(context.Background(), query, "127.0.0.1", 40003)
+	if query.PID != 0 || query.Process != nil {
+		t.Errorf("unknown port attributed to %d", query.PID)
+	}
+
+	if got := attributor.Stats(); got != (AttributionStats{ByPortOwner: 2, BySocketTable: 1, Unattributed: 1}) {
+		t.Errorf("stats = %+v", got)
+	}
+	if asked[0] != "udp/40000" || asked[1] != "udp/40001" || asked[2] != "tcp/40001" {
+		t.Errorf("asked %v", asked)
+	}
+
+	// With no port owner it is the attributor it always was.
+	plain := NewLinuxAttributorWithPortOwner(&countingLookup{owners: map[uint32]uint32{40002: 99}}, nil, nil)
+	query = &core.DNSQuery{}
+	plain.Attribute(context.Background(), query, "127.0.0.1", 40002)
+	if query.PID != 99 {
+		t.Errorf("without a port owner: pid %d", query.PID)
+	}
+}
+
+type countingLookup struct {
+	owners map[uint32]uint32
+	calls  int
+}
+
+func (l *countingLookup) FindOwner(_ context.Context, _ string, port uint32) (*SocketOwner, error) {
+	l.calls++
+	if pid, ok := l.owners[port]; ok {
+		return &SocketOwner{PID: pid}, nil
+	}
+	return nil, nil
 }

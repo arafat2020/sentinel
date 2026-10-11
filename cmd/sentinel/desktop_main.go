@@ -5,19 +5,15 @@ import (
 	"fmt"
 	"os"
 	"runtime"
-	"time"
 
 	"github.com/arafat2020/sentinel/internal/config"
 	"github.com/arafat2020/sentinel/internal/core"
 	"github.com/arafat2020/sentinel/internal/detection/correlation"
 	"github.com/arafat2020/sentinel/internal/eventbus"
 	"github.com/arafat2020/sentinel/internal/finding"
-	"github.com/arafat2020/sentinel/internal/monitor"
 	"github.com/arafat2020/sentinel/internal/store"
 
-	networkcollector "github.com/arafat2020/sentinel/internal/collector/network"
 	processCollector "github.com/arafat2020/sentinel/internal/collector/process"
-	networkdetector "github.com/arafat2020/sentinel/internal/detection/network"
 	processDetector "github.com/arafat2020/sentinel/internal/detection/process"
 )
 
@@ -84,7 +80,8 @@ func runDesktopMode(
 	if err := patternFile.Watch(ctx, watchDebounce); err != nil {
 		fmt.Fprintf(os.Stderr, "sentinel: patterns file is not being watched for changes: %v\n", err)
 	}
-	dui.SetHealth((&health{collection: collection, bus: bus, engine: corrEngine, patterns: patternFile}).Text)
+	network := mustOpenNetwork(collectors, collection)
+	dui.SetHealth((&health{collection: collection, network: network, bus: bus, engine: corrEngine, patterns: patternFile}).Text)
 
 	// ── Process detection ─────────────────────────────────────────────────────
 
@@ -189,16 +186,17 @@ func runDesktopMode(
 
 	// ── Platform-neutral monitors ─────────────────────────────────────────────
 
-	netCol := networkcollector.NewCollector()
-	netDetector := networkdetector.NewLifecycleDetector()
-	netMonitor := monitor.NewNetworkMonitor(netCol, netDetector, 2*time.Second, bus)
-
 	bus.Start(ctx)
-	for _, line := range collection.Describe() {
+	for _, line := range append(collection.Describe(), network.Describe()...) {
 		dui.AddProcess(line)
 	}
-	collection.Start(ctx, bus, lifecycleDetector, coordinator, corrEngine, dui.AddProcess)
-	go netMonitor.Run(ctx)
+	applyOrderTolerance(corrEngine, collection, network)
+	fellBack := func(message string) {
+		applyOrderTolerance(corrEngine, collection, network)
+		dui.AddProcess(message)
+	}
+	collection.Start(ctx, bus, lifecycleDetector, coordinator, corrEngine, fellBack)
+	network.Start(ctx, bus, fellBack)
 
 	go func() {
 		<-ctx.Done()

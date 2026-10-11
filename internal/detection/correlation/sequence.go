@@ -20,6 +20,16 @@ const (
 	// covers the polling interval and the time a collection takes.
 	DefaultOrderTolerance = 3 * time.Second
 
+	// EventDrivenOrderTolerance is the default order tolerance when no
+	// source polls: processes, connections, DNS queries and file events
+	// are all reported as they happen. Process and network events then
+	// carry the kernel's own time for the action, but DNS queries and file
+	// events are still stamped when Sentinel read them, a little after
+	// they happened. Measured on a loaded host, that delay stayed under
+	// 100 ms at the 99.9th percentile (see docs/linux-network-collector.md);
+	// this is that with a margin.
+	EventDrivenOrderTolerance = 250 * time.Millisecond
+
 	// MaxSequenceSteps is the most steps a sequence may have.
 	MaxSequenceSteps = 8
 

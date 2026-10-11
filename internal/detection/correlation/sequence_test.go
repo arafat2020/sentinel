@@ -855,3 +855,68 @@ func TestFindingRecordsItsCaptures(t *testing.T) {
 		t.Errorf("a pattern without captures recorded %+v", plain)
 	}
 }
+
+// A sequence that does not set order_tolerance takes the engine's default,
+// which the entrypoints choose by how events are collected. One that sets it
+// keeps its own, whatever the default.
+func TestDefaultOrderToleranceIsTheEnginesToChoose(t *testing.T) {
+	sequence := func(explicit *time.Duration) []BehaviorPattern {
+		return oneRoleSequence(SequencePattern{
+			OrderTolerance: explicit,
+			Steps:          []SequenceStep{step("r", core.EventDNSQuery), step("r", core.EventNetworkConnect)},
+		})
+	}
+
+	// The connection is stamped one second before the lookup that in the
+	// pattern precedes it: in order only if a second of disorder is allowed.
+	fires := func(configure func(*Engine), patterns []BehaviorPattern) bool {
+		h := newSequenceHarness(t, patterns)
+		configure(h.Engine)
+
+		p := proc(50, 1, "p", at(0))
+		h.start(p, at(0))
+		h.connect(p, at(2*time.Second))
+		h.query(p, "example.com", at(3*time.Second))
+		return len(h.detect(at(3*time.Second))) == 1
+	}
+
+	asIs := func(*Engine) {}
+	eventDriven := func(e *Engine) { e.SetDefaultOrderTolerance(EventDrivenOrderTolerance) }
+
+	if got := NewEngine(testWindow).DefaultOrderToleranceInUse(); got != DefaultOrderTolerance {
+		t.Errorf("a new engine's default = %v, want %v", got, DefaultOrderTolerance)
+	}
+	if !fires(asIs, sequence(nil)) {
+		t.Error("with the polling default, a second of disorder should be tolerated")
+	}
+	if fires(eventDriven, sequence(nil)) {
+		t.Error("with the event-driven default, a second of disorder should not be tolerated")
+	}
+
+	// An explicit tolerance wins in both directions.
+	if !fires(eventDriven, sequence(tolerance(2*time.Second))) {
+		t.Error("an explicit 2s tolerance was overridden by the smaller default")
+	}
+	if fires(asIs, sequence(tolerance(0))) {
+		t.Error("an explicit 0s tolerance was overridden by the larger default")
+	}
+
+	// Changing the default applies to patterns already loaded, and to ones
+	// loaded later, and can be changed back.
+	h := newSequenceHarness(t, sequence(nil))
+	h.SetDefaultOrderTolerance(EventDrivenOrderTolerance)
+	if got := h.DefaultOrderToleranceInUse(); got != EventDrivenOrderTolerance {
+		t.Errorf("default in use = %v", got)
+	}
+	if got := h.patterns[0].sequence.tolerance; got != EventDrivenOrderTolerance {
+		t.Errorf("a loaded sequence has tolerance %v after the default changed", got)
+	}
+	h.SetPatterns(sequence(tolerance(time.Second)))
+	if got := h.patterns[0].sequence.tolerance; got != time.Second {
+		t.Errorf("an explicit tolerance loaded as %v", got)
+	}
+	h.SetDefaultOrderTolerance(-time.Second)
+	if got := h.DefaultOrderToleranceInUse(); got != 0 {
+		t.Errorf("a negative default became %v", got)
+	}
+}

@@ -30,10 +30,13 @@ type collectorFlags struct {
 	// recentFindings is how many stored findings the interfaces show
 	// again after a restart.
 	recentFindings *int
+	// network chooses and tunes network collection.
+	network networkFlags
 }
 
 func registerCollectorFlags() collectorFlags {
 	return collectorFlags{
+		network: registerNetworkFlags(),
 		backend: flag.String("process-collector", string(procevents.BackendAuto),
 			"how process events are collected: auto|ebpf|proc-connector|poll (auto tries ebpf, then proc-connector, then poll)"),
 		grace: flag.Duration("process-exec-grace", procevents.DefaultGrace,
@@ -99,6 +102,22 @@ func (p *processCollection) Active() procevents.Backend {
 		return procevents.BackendPoll
 	}
 	return p.source.Backend()
+}
+
+// EventDriven reports whether process events are reported as they happen.
+func (p *processCollection) EventDriven() bool { return p.Active() != procevents.BackendPoll }
+
+// Lookup returns what an event-driven collector knows about the process
+// holding pid, which may have exited. Polling knows nothing of the kind.
+func (p *processCollection) Lookup(pid int32) (core.Process, bool) {
+	p.mu.Lock()
+	source := p.source
+	p.mu.Unlock()
+
+	if source == nil {
+		return core.Process{}, false
+	}
+	return source.Lookup(pid)
 }
 
 // Stats returns the collector's counters. Polling has none.

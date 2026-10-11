@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">Sentinel</title>
+  <desc id="desc">A shield containing a telemetry pulse.</desc>
+  <path d="M48 7 77 19v25c0 20-12 35-29 44C31 79 19 64 19 44V19L48 7Z" fill="#EAF5F3" stroke="#087F8C" stroke-width="3.5" stroke-linejoin="round"/>
+  <path d="M30 49h13l6-13 10 27 7-16h10" stroke="#087F8C" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="76" cy="47" r="4" fill="#D97745"/>
+</svg>

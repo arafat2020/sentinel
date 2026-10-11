@@ -133,6 +133,89 @@ func TestDefaultPatternMatchesVersionedPythonNames(t *testing.T) {
 	}
 }
 
+func shippedPatternNamed(t *testing.T, name string) BehaviorPattern {
+	t.Helper()
+	for _, pattern := range ShippedPatterns() {
+		if pattern.Name == name {
+			return pattern
+		}
+	}
+	t.Fatalf("shipped pattern %q not found", name)
+	return BehaviorPattern{}
+}
+
+func TestShippedWebshellPatternRequiresDescendantAndNonStandardPort(t *testing.T) {
+	for _, testCase := range []struct {
+		name string
+		port uint32
+		want int
+	}{
+		{name: "non-standard port", port: 4444, want: 1},
+		{name: "standard port", port: 443, want: 0},
+		{name: "missing connection details", port: 0, want: 0},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			h := newHarness(DefaultWindow)
+			h.SetPatterns([]BehaviorPattern{shippedPatternNamed(t, "webshell-outbound-any-depth")})
+
+			web := proc(10, 1, "nginx", at(0))
+			worker := proc(20, 10, "php-fpm", at(time.Second))
+			shell := proc(30, 20, "bash", at(2*time.Second))
+			h.start(web, at(0))
+			h.start(worker, at(time.Second))
+			h.start(shell, at(2*time.Second))
+			if testCase.port == 0 {
+				h.feed(core.EventNetworkConnect, shell, at(3*time.Second))
+			} else {
+				h.connectTo(shell, "203.0.113.9", testCase.port, at(3*time.Second))
+			}
+
+			findings := h.detect(at(4 * time.Second))
+			if len(findings) != testCase.want {
+				t.Fatalf("findings = %d, want %d", len(findings), testCase.want)
+			}
+			if testCase.want == 1 && findings[0].Rule != "webshell-outbound-any-depth" {
+				t.Fatalf("rule = %q, want webshell-outbound-any-depth", findings[0].Rule)
+			}
+		})
+	}
+}
+
+func TestShippedDropExecutePatternMatchesCapturedFilePath(t *testing.T) {
+	for _, testCase := range []struct {
+		name         string
+		executable   string
+		wantFindings int
+	}{
+		{name: "same file", executable: "/tmp/payload", wantFindings: 1},
+		{name: "different file", executable: "/tmp/other", wantFindings: 0},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			h := newHarness(DefaultWindow)
+			h.SetPatterns([]BehaviorPattern{shippedPatternNamed(t, "network-file-drop-execute")})
+
+			launcher := proc(10, 1, "service", at(0))
+			downloader := proc(20, 10, "curl", at(time.Second))
+			payload := proc(30, 10, "payload", at(3*time.Second))
+			payload.Executable = testCase.executable
+
+			h.start(launcher, at(0))
+			h.start(downloader, at(time.Second))
+			h.connectTo(downloader, "203.0.113.9", 443, at(2*time.Second))
+			h.fileCreate(downloader, "/tmp/payload", at(3*time.Second))
+			h.start(payload, at(4*time.Second))
+
+			findings := h.detect(at(5 * time.Second))
+			if len(findings) != testCase.wantFindings {
+				t.Fatalf("findings = %d, want %d", len(findings), testCase.wantFindings)
+			}
+			if testCase.wantFindings == 1 && findings[0].Rule != "network-file-drop-execute" {
+				t.Fatalf("rule = %q, want network-file-drop-execute", findings[0].Rule)
+			}
+		})
+	}
+}
+
 func TestConditionsAndMatchBlockAreBothRequired(t *testing.T) {
 	role := ProcessPattern{
 		ID:         "p",

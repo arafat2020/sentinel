@@ -86,8 +86,9 @@ type RelationshipDef struct {
 
 // RoleExclusionDef is the YAML representation of a RoleExclusion.
 type RoleExclusionDef struct {
-	Role  string    `yaml:"role"`
-	Match yaml.Node `yaml:"match"`
+	Role        string    `yaml:"role"`
+	Match       yaml.Node `yaml:"match"`
+	Description string    `yaml:"description,omitempty"`
 }
 
 // ExclusionDef is the YAML representation of a top-level Exclusion.
@@ -352,7 +353,7 @@ func convertPattern(def PatternDef) (correlation.BehaviorPattern, error) {
 		if err != nil {
 			return correlation.BehaviorPattern{}, fmt.Errorf("exclude[%d] (role %q): %w", i, xd.Role, err)
 		}
-		exclude = append(exclude, correlation.RoleExclusion{Role: xd.Role, Match: match})
+		exclude = append(exclude, correlation.RoleExclusion{Role: xd.Role, Match: match, Description: xd.Description})
 	}
 
 	sequence, err := convertSequence(def.Sequence)
@@ -585,7 +586,7 @@ func unconvertPattern(p correlation.BehaviorPattern) PatternDef {
 
 	var exclude []RoleExclusionDef
 	for _, x := range p.Exclude {
-		exclude = append(exclude, RoleExclusionDef{Role: x.Role, Match: encodeMatchBlock(x.Match)})
+		exclude = append(exclude, RoleExclusionDef{Role: x.Role, Match: encodeMatchBlock(x.Match), Description: x.Description})
 	}
 
 	return PatternDef{

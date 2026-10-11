@@ -35,7 +35,7 @@ var (
 			"events":     eventKeys,
 		},
 		"relationships": {"type": nil, "parent": nil, "child": nil, "max_depth": nil},
-		"exclude":       {"role": nil, "match": matchKeys},
+		"exclude":       {"role": nil, "match": matchKeys, "description": nil},
 		"sequence": {
 			"within":          nil,
 			"order_tolerance": nil,

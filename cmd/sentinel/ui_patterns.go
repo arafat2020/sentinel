@@ -63,6 +63,120 @@ type PatternsPage struct {
 	// draft holds in-progress edits to the currently selected pattern.
 	// It is applied to patterns[editingIdx] only when the user presses Save.
 	draft correlation.BehaviorPattern
+
+	// store, when set, is what saves go through and where the patterns
+	// come from when the file changes. Without it the page writes the file
+	// itself and reports through onSave, as it always did.
+	store     *patternStore
+	fileError string
+}
+
+// SetStore connects the page to the pattern-file service: saves go through
+// it, changes made to the file elsewhere appear here, and the YAML editors
+// become available.
+func (pp *PatternsPage) SetStore(store *patternStore) {
+	pp.store = store
+	pp.syncFromStore()
+}
+
+// syncFromStore replaces what the page shows with the patterns now in force.
+// It must run on the event loop.
+func (pp *PatternsPage) syncFromStore() {
+	if pp.store == nil {
+		return
+	}
+	state := pp.store.State()
+
+	pp.patterns = make([]correlation.BehaviorPattern, len(state.Patterns))
+	for i, pattern := range state.Patterns {
+		pp.patterns[i] = deepCopyPattern(pattern)
+	}
+	pp.loadErrors = state.Errors
+	pp.fileError = state.FileError
+
+	if pp.editingIdx >= len(pp.patterns) {
+		pp.editingIdx = -1
+		pp.rightPanel.SwitchToPage("placeholder")
+	}
+	pp.reloadList()
+}
+
+// persist writes the page's patterns: through the store when there is one.
+func (pp *PatternsPage) persist() error {
+	if pp.store != nil {
+		return pp.store.SavePatterns(pp.patterns)
+	}
+
+	if err := config.SavePatterns(pp.patternPath, pp.patterns); err != nil {
+		return err
+	}
+	if pp.onSave != nil {
+		pp.onSave(pp.patterns)
+	}
+	return nil
+}
+
+// openYAML opens the YAML editor over the whole screen.
+func (pp *PatternsPage) openYAML(title, text string, save func(string) []config.EditError) {
+	if pp.store == nil {
+		pp.showModal("YAML editor", "The YAML editor is not available here.", nil)
+		return
+	}
+
+	notice := ""
+	if err := pp.store.Writable(); err != nil {
+		notice = err.Error()
+	}
+
+	editor := newYAMLEditor(title, text, notice, save, func(saved bool) {
+		pp.pages.RemovePage("yaml-editor")
+		pp.syncFromStore()
+		pp.app.SetFocus(pp.list)
+		if saved {
+			pp.showModal("Saved", "Saved and applied.", nil)
+		}
+	})
+	pp.pages.AddPage("yaml-editor", editor.root, true, true)
+	pp.app.SetFocus(editor.area)
+}
+
+// editSelectedYAML opens the selected pattern exactly as it would be saved.
+func (pp *PatternsPage) editSelectedYAML() {
+	if pp.store == nil {
+		return
+	}
+	index := pp.list.GetCurrentItem()
+
+	// What is edited is the pattern in force, not an unsaved draft: a
+	// pattern the form has added but not saved has no YAML yet.
+	text, err := pp.store.PatternYAML(index)
+	if err != nil {
+		pp.showModal("Edit YAML", "Save this pattern first, or use New from YAML.", nil)
+		return
+	}
+
+	name := pp.store.State().Patterns[index].Name
+	pp.openYAML("Edit pattern "+name+" (YAML)", text, func(edited string) []config.EditError {
+		return pp.store.SavePatternYAML(index, edited)
+	})
+}
+
+func (pp *PatternsPage) newFromYAML() {
+	pp.openYAML("New pattern (YAML)", config.PatternTemplate, func(edited string) []config.EditError {
+		return pp.store.SavePatternYAML(-1, edited)
+	})
+}
+
+func (pp *PatternsPage) editExclusionsYAML() {
+	if pp.store == nil {
+		return
+	}
+	text, err := pp.store.ExclusionsYAML()
+	if err != nil {
+		pp.showModal("Exclusions", err.Error(), nil)
+		return
+	}
+	pp.openYAML("Top-level exclusions (YAML)", text, pp.store.SaveExclusionsYAML)
 }
 
 // NewPatternsPage constructs the page. app and pages are the main UI's
@@ -97,6 +211,9 @@ func (pp *PatternsPage) SetLoadErrors(errs []config.PatternError) {
 // when nothing is.
 func (pp *PatternsPage) refreshProblems() {
 	problems := patternProblems(pp.loadErrors, pp.patterns)
+	if pp.fileError != "" {
+		problems = append([]string{pp.fileError}, problems...)
+	}
 
 	if len(problems) == 0 {
 		pp.problems.SetText("")
@@ -144,6 +261,15 @@ func (pp *PatternsPage) build() {
 		case 'd', 'D':
 			pp.deleteSelected()
 			return nil
+		case 'y', 'Y':
+			pp.editSelectedYAML()
+			return nil
+		case 't', 'T':
+			pp.newFromYAML()
+			return nil
+		case 'x', 'X':
+			pp.editExclusionsYAML()
+			return nil
 		}
 		return event
 	})
@@ -160,9 +286,10 @@ func (pp *PatternsPage) build() {
 	pp.rightPanel.AddPage("placeholder", pp.placeholder, true, true)
 	pp.rightPanel.AddPage("form", pp.form, true, false)
 
+	// Plain text: with colour tags on, "[N]" and "[D]" are read as tags and
+	// vanish.
 	hint := tview.NewTextView().
-		SetText("  [N] New  [D] Delete  [Tab] Switch panel  [←/→] Switch tab  [Esc] Main view").
-		SetDynamicColors(true)
+		SetText(" [N] New [D] Delete [Y] Edit YAML [T] New from YAML [X] Exclusions [Tab] Panel")
 	hint.SetBackgroundColor(tcell.ColorDarkBlue)
 
 	body := tview.NewFlex().
@@ -247,7 +374,11 @@ func (pp *PatternsPage) rebuildForm() {
 	// Parts of the pattern this editor does not understand are kept as they
 	// are on save; say so rather than let them look absent.
 	if pp.draft.UsesAdvancedFields() {
-		pp.form.AddTextView("Advanced", "[yellow]⚙ "+advancedFieldsNote+"[-]", 40, 1, true, false)
+		note := advancedFieldsNote
+		if pp.store != nil {
+			note += " (YAML button, or Y in the list)"
+		}
+		pp.form.AddTextView("Advanced", "[yellow]⚙ "+note+"[-]", 0, 1, true, false)
 	}
 
 	// Processes summary + edit button
@@ -268,6 +399,11 @@ func (pp *PatternsPage) rebuildForm() {
 	pp.form.AddButton("Cancel", func() {
 		pp.selectPattern(pp.editingIdx)
 	})
+	if pp.store != nil {
+		// The form shows only part of a pattern; the YAML is all of it.
+		// Last, and short, so the buttons before it keep their places.
+		pp.form.AddButton("YAML", pp.editSelectedYAML)
+	}
 
 	// Esc in the form goes back to the list
 	pp.form.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
@@ -313,12 +449,9 @@ func (pp *PatternsPage) savePattern() {
 	pp.patterns[pp.editingIdx] = deepCopyPattern(pp.draft)
 	pp.reloadList()
 
-	if err := config.SavePatterns(pp.patternPath, pp.patterns); err != nil {
+	if err := pp.persist(); err != nil {
 		pp.showModal("Save Error", err.Error(), nil)
 		return
-	}
-	if pp.onSave != nil {
-		pp.onSave(pp.patterns)
 	}
 	pp.showModal("Saved", fmt.Sprintf("Pattern %q saved.", pp.draft.Name), nil)
 }
@@ -353,8 +486,8 @@ func (pp *PatternsPage) deleteSelected() {
 			pp.editingIdx = -1
 			pp.reloadList()
 			pp.rightPanel.SwitchToPage("placeholder")
-			if err := config.SavePatterns(pp.patternPath, pp.patterns); err == nil && pp.onSave != nil {
-				pp.onSave(pp.patterns)
+			if err := pp.persist(); err != nil {
+				pp.showModal("Save Error", err.Error(), nil)
 			}
 		},
 	)

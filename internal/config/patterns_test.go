@@ -100,15 +100,20 @@ func detects(t *testing.T, patterns []correlation.BehaviorPattern, childName str
 func TestShippedPatternsFileLoadsAsDefaults(t *testing.T) {
 	loaded := mustLoad(t, shippedPatterns)
 
-	if !reflect.DeepEqual(normalize(loaded.Patterns), normalize(correlation.DefaultPatterns())) {
-		t.Fatalf("shipped patterns differ from DefaultPatterns:\n%+v", loaded.Patterns)
+	if !reflect.DeepEqual(normalize(loaded.Patterns), normalize(correlation.ShippedPatterns())) {
+		t.Fatalf("shipped patterns differ from ShippedPatterns:\n%+v", loaded.Patterns)
+	}
+
+	// The engine's built-in default is the first of them, unchanged.
+	if !reflect.DeepEqual(normalize(loaded.Patterns[:1]), normalize(correlation.DefaultPatterns())) {
+		t.Fatalf("the first shipped pattern is not DefaultPatterns:\n%+v", loaded.Patterns[0])
 	}
 }
 
 // Saving the defaults reproduces the shipped file byte for byte.
 func TestSavingDefaultsReproducesShippedFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "patterns.yaml")
-	if err := SavePatterns(path, correlation.DefaultPatterns()); err != nil {
+	if err := SavePatterns(path, correlation.ShippedPatterns()); err != nil {
 		t.Fatalf("SavePatterns: %v", err)
 	}
 
@@ -129,8 +134,10 @@ func TestSavingDefaultsReproducesShippedFile(t *testing.T) {
 func TestShippedPatternDetectsVersionedPython(t *testing.T) {
 	loaded := mustLoad(t, shippedPatterns)
 
+	// The first shipped pattern, on its own: the scenario's parent is node,
+	// which the second shipped pattern reports as well.
 	for child, want := range map[string]int{"python": 1, "python3": 1, "python3.12": 1, "bash": 0} {
-		if got := detects(t, loaded.Patterns, child); got != want {
+		if got := detects(t, loaded.Patterns[:1], child); got != want {
 			t.Errorf("child %q: findings = %d, want %d", child, got, want)
 		}
 	}
@@ -830,5 +837,43 @@ func TestProcessExecLoadsFromYAML(t *testing.T) {
 
 	if len(set.Errors) != 1 || !strings.Contains(set.Errors[0].Error(), "events[0] (PROCESS_EXEC): where.domain: unknown field (valid fields: cmdline, exe, name, user)") {
 		t.Errorf("errors = %v, want the fields of PROCESS_START offered for PROCESS_EXEC", set.Errors)
+	}
+}
+
+// What used to be a rule written in Go, a node process spawning Python, is a
+// shipped pattern. It needs no events, only the two processes, and it accepts
+// versioned interpreter names, which the Go rule did not.
+func TestShippedPatternReplacesTheNodePythonRule(t *testing.T) {
+	loaded := mustLoad(t, shippedPatterns)
+
+	started := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	clock := started
+	run := func(parentName, childName string) []core.Finding {
+		engine := correlation.NewEngine(correlation.DefaultWindow, correlation.WithClock(func() time.Time { return clock }))
+		engine.SetPatterns(loaded.Patterns)
+
+		parent := core.Process{PID: 100, PPID: 1, Name: parentName, StartTime: started}
+		child := core.Process{PID: 200, PPID: 100, Name: childName, StartTime: started.Add(time.Second)}
+		engine.Process(core.Event{Type: core.EventProcessStart, Timestamp: started, Process: &parent})
+		engine.Process(core.Event{Type: core.EventProcessStart, Timestamp: started.Add(time.Second), Process: &child})
+
+		clock = started.Add(time.Second)
+		return engine.DetectBehaviors()
+	}
+
+	for _, python := range []string{"python", "python3", "python3.12"} {
+		findings := run("node", python)
+		if len(findings) != 1 || findings[0].Rule != "suspicious-child-process" || findings[0].Severity != core.SeverityHigh {
+			t.Fatalf("node spawning %s: findings = %+v", python, findings)
+		}
+		if roles := findings[0].Evidence.Roles; roles["parent"].PID != 100 || roles["child"].PID != 200 {
+			t.Errorf("node spawning %s: roles = %+v", python, roles)
+		}
+	}
+
+	for _, pair := range [][2]string{{"node", "ls"}, {"bash", "python"}, {"node", "pythonista"}} {
+		if findings := run(pair[0], pair[1]); len(findings) != 0 {
+			t.Errorf("%s spawning %s: %d findings, want none", pair[0], pair[1], len(findings))
+		}
 	}
 }

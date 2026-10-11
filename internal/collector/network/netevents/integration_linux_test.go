@@ -660,7 +660,7 @@ func TestMappedAddressesAndListeners(t *testing.T) {
 	}
 
 	l := recorded.matching(listening)[0]
-	if l.Network.Direction != core.DirectionInbound || l.Network.RemoteAddress != "" || l.Network.RemotePort != 0 || l.Process.PID != int32(os.Getpid()) {
+	if l.Network.Direction != core.DirectionInbound || l.Network.RemoteAddress != "::" || l.Network.LocalAddress != "::" || l.Network.RemotePort != 0 || l.Process.PID != int32(os.Getpid()) {
 		t.Errorf("listening event = %+v", *l.Network)
 	}
 	if l.Metadata[MetaNetNS] == nil || l.Metadata[MetaNetNS] == uint32(0) {

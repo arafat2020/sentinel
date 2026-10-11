@@ -9,6 +9,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 
+	"github.com/arafat2020/sentinel/internal/collector/network/netevents"
 	"github.com/arafat2020/sentinel/internal/collector/process/procevents"
 	"github.com/arafat2020/sentinel/internal/core"
 	"github.com/arafat2020/sentinel/internal/detection/correlation"
@@ -264,9 +265,103 @@ func TestHealthLayoutAlignsAndReflows(t *testing.T) {
 	}
 
 	// Latency that has never been measured is not shown as zero seconds.
-	unmeasured := healthReport{Collector: procevents.Stats{Backend: procevents.BackendPoll}}
+	unmeasured := healthReport{Collector: procevents.Stats{Backend: procevents.BackendPoll}, OrderTolerance: 3 * time.Second}
 	text := strings.Join(layoutHealth(unmeasured, 80, plain), "\n")
-	if strings.Contains(text, "0s") || !strings.Contains(text, "latency p50         —") {
+	if strings.Contains(text, " 0s") || !strings.Contains(text, "latency p50         —") {
 		t.Errorf("unmeasured latency:\n%s", text)
+	}
+}
+
+// The default order tolerance is the small one only when nothing polls.
+func TestOrderToleranceFollowsTheBackends(t *testing.T) {
+	cases := []struct {
+		goos             string
+		process, network bool
+		want             time.Duration
+	}{
+		{"linux", true, true, correlation.EventDrivenOrderTolerance},
+		{"linux", true, false, correlation.DefaultOrderTolerance}, // connections are polled
+		{"linux", false, true, correlation.DefaultOrderTolerance}, // processes are polled
+		{"linux", false, false, correlation.DefaultOrderTolerance},
+		// Elsewhere everything process and network is polled, whatever the
+		// flags say.
+		{"darwin", true, true, correlation.DefaultOrderTolerance},
+		{"windows", true, true, correlation.DefaultOrderTolerance},
+	}
+	for _, c := range cases {
+		if got := chooseOrderTolerance(c.goos, c.process, c.network); got != c.want {
+			t.Errorf("%s, processes event-driven %v, network event-driven %v: %v, want %v", c.goos, c.process, c.network, got, c.want)
+		}
+	}
+	if correlation.EventDrivenOrderTolerance >= correlation.DefaultOrderTolerance {
+		t.Error("the event-driven tolerance is not the smaller one")
+	}
+
+	// It is applied to the engine, and reported.
+	engine := correlation.NewEngine(correlation.DefaultWindow)
+	polling := &processCollection{requested: procevents.BackendPoll}
+	network := &networkCollection{requested: netevents.BackendPoll}
+	if got := applyOrderTolerance(engine, polling, network); got != correlation.DefaultOrderTolerance || engine.DefaultOrderToleranceInUse() != got {
+		t.Errorf("with everything polled: %v (engine has %v)", got, engine.DefaultOrderToleranceInUse())
+	}
+
+	report := (&health{collection: polling, network: network, bus: eventbus.New(1), engine: engine}).Report()
+	if report.OrderTolerance != correlation.DefaultOrderTolerance || !report.HaveNetwork || report.Network.Backend != netevents.BackendPoll {
+		t.Errorf("report = %+v", report)
+	}
+	text := strings.Join(report.Lines(), "\n")
+	for _, want := range []string{"order tolerance     3s", "Network             poll (requested: poll), snapshot every 2s"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("health lacks %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "NETWORK EVENTS") || !strings.Contains(report.LogLine(), "network_collector=poll") || !strings.Contains(report.LogLine(), "order_tolerance_ms=3000") {
+		t.Errorf("polling network: text or log line wrong:\n%s\n%s", text, report.LogLine())
+	}
+	if got := collectorSummary(polling, network); got != "process poll, network poll" {
+		t.Errorf("summary = %q", got)
+	}
+}
+
+// The network collector's counters are in the report, and the ones that mean
+// loss raise the alert.
+func TestHealthShowsTheNetworkCollector(t *testing.T) {
+	report := sampleHealth()
+	report.HaveNetwork = true
+	report.NetworkRequested = netevents.BackendAuto
+	report.OrderTolerance = correlation.EventDrivenOrderTolerance
+	report.Network = netevents.Stats{
+		Backend: netevents.BackendEBPF, Connects: 501, Failed: 502, Accepts: 503, Closes: 504, Listens: 505, UDP: 506,
+		KernelDrops: 507, Unowned: 508, SockInserts: 509, UDPInserts: 510, DecodeErrors: 511, Undescribed: 512, ClockErrorNanos: 513,
+	}
+
+	text := strings.Join(report.Lines(), "\n")
+	line := report.LogLine()
+	for value := 501; value <= 512; value++ {
+		if !strings.Contains(text, fmt.Sprint(value)) {
+			t.Errorf("text lacks network counter %d:\n%s", value, text)
+		}
+		if !strings.Contains(line, fmt.Sprintf("=%d", value)) {
+			t.Errorf("log line lacks network counter %d:\n%s", value, line)
+		}
+	}
+	for _, want := range []string{"NETWORK EVENTS", "Network             ebpf (requested: auto)", "513ns", "order tolerance     250ms", "sockets tracked     509/65536"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("text lacks %q:\n%s", want, text)
+		}
+	}
+
+	alerts := strings.Join(report.Alerts(), "; ")
+	if !strings.Contains(alerts, "network kernel drops 507") || !strings.Contains(alerts, "connections closed with no known owner 508") {
+		t.Errorf("alerts = %s", alerts)
+	}
+
+	// Skipped and failed backends are explained under the collector.
+	report.Network = netevents.Stats{Backend: netevents.BackendPoll}
+	report.NetworkSkipped = []netevents.Skip{{Backend: netevents.BackendEBPF, Reason: "missing BTF"}}
+	report.NetworkFailure = "ring buffer closed; falling back to poll"
+	text = strings.Join(report.Lines(), "\n")
+	if !strings.Contains(text, "skipped ebpf: missing BTF") || !strings.Contains(text, "falling back to poll") || strings.Contains(text, "NETWORK EVENTS") {
+		t.Errorf("fallback not explained:\n%s", text)
 	}
 }

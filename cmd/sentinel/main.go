@@ -20,10 +20,8 @@ import (
 	"github.com/arafat2020/sentinel/internal/monitor"
 	"github.com/arafat2020/sentinel/internal/store"
 
-	networkcollector "github.com/arafat2020/sentinel/internal/collector/network"
 	processCollector "github.com/arafat2020/sentinel/internal/collector/process"
 	resourcecollector "github.com/arafat2020/sentinel/internal/collector/resource"
-	networkdetector "github.com/arafat2020/sentinel/internal/detection/network"
 	processDetector "github.com/arafat2020/sentinel/internal/detection/process"
 )
 
@@ -142,6 +140,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	network := mustOpenNetwork(collectors, collection)
+
 	ui := NewUI()
 	ui.SetStore(eventStore)
 
@@ -183,7 +183,7 @@ func main() {
 
 	settingsPage := NewSettingsPage(ui.app, eventStore)
 	ui.SetSettingsPage(settingsPage)
-	ui.SetHealthReport((&health{collection: collection, bus: bus, engine: corrEngine, patterns: patternFile}).Report)
+	ui.SetHealthReport((&health{collection: collection, network: network, bus: bus, engine: corrEngine, patterns: patternFile}).Report)
 
 	// ── Pattern editor TUI page ───────────────────────────────────────────────
 
@@ -194,7 +194,7 @@ func main() {
 	ui.SetFindings(findings, patternFile)
 	ui.SetStatusLine(func() string {
 		total, unhandled := findings.Counts()
-		return summaryLine(string(collection.Active()), patternFile.State(), total, unhandled)
+		return summaryLine(collectorSummary(collection, network), patternFile.State(), total, unhandled)
 	})
 
 	// ── Bus subscribers → UI tabs ─────────────────────────────────────────────
@@ -287,10 +287,6 @@ func main() {
 
 	// ── Platform-neutral monitors (process + network) ─────────────────────────
 
-	netCollector := networkcollector.NewCollector()
-	netDetector := networkdetector.NewLifecycleDetector()
-	netMonitor := monitor.NewNetworkMonitor(netCollector, netDetector, 2*time.Second, bus)
-
 	// Live resource usage feeds the Resources tab directly: it bypasses the
 	// event bus and the store so samples never reach detection or SQLite.
 	resourceMonitor := monitor.NewResourceMonitor(
@@ -304,7 +300,8 @@ func main() {
 	// Lines for the Process tab wait for the event loop, which has not
 	// started yet, so they are sent from a goroutine. Sending them from
 	// here would stop Sentinel before it ever drew anything.
-	startup := collection.Describe()
+	startup := append(collection.Describe(), network.Describe()...)
+	startup = append(startup, fmt.Sprintf("sequence order tolerance defaults to %s", applyOrderTolerance(corrEngine, collection, network)))
 	if err := patternFile.Watch(ctx, watchDebounce); err != nil {
 		startup = append(startup, fmt.Sprintf("patterns file is not being watched for changes: %v", err))
 	}
@@ -313,8 +310,14 @@ func main() {
 			ui.AddProcess(line)
 		}
 	}()
-	collection.Start(ctx, bus, lifecycleDetector, coordinator, corrEngine, ui.AddProcess)
-	go netMonitor.Run(ctx)
+	// If an event-driven collector gives up and polling takes over, the
+	// tolerance that suited it no longer does.
+	fellBack := func(message string) {
+		applyOrderTolerance(corrEngine, collection, network)
+		ui.AddProcess(message)
+	}
+	collection.Start(ctx, bus, lifecycleDetector, coordinator, corrEngine, fellBack)
+	network.Start(ctx, bus, fellBack)
 	go resourceMonitor.Run(ctx)
 
 	// Stop the UI when the OS signal fires.

@@ -24,4 +24,15 @@ type Evidence struct {
 	// most recent events counted towards each threshold. The list is
 	// capped, so it is a sample rather than a complete record.
 	Events []Event `json:"events,omitempty"`
+	// Captures are the events the rule's sequence named so that later steps
+	// could refer to them, in step order. They are recorded when the
+	// finding is made, so the finding still says what was captured after
+	// the rule has been edited or removed.
+	Captures []Capture `json:"captures,omitempty"`
+}
+
+// Capture is an event a sequence step named with "capture".
+type Capture struct {
+	Name  string `json:"name"`
+	Event Event  `json:"event"`
 }

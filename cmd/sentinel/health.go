@@ -25,6 +25,8 @@ type health struct {
 	collection *processCollection
 	bus        *eventbus.Bus
 	engine     *correlation.Engine
+	// patterns, when set, adds the state of the patterns file.
+	patterns *patternStore
 }
 
 type healthReport struct {
@@ -36,14 +38,49 @@ type healthReport struct {
 	Engine    correlation.Metrics
 	// Excluded is the number of findings dropped by exclusions, by rule.
 	Excluded map[string]int
+	// Patterns is how many patterns are loaded, and PatternProblems what
+	// is wrong with the patterns file, if anything.
+	Patterns        int
+	Exclusions      int
+	PatternProblems []string
+	// HavePatterns is false when the report was made without a patterns
+	// file to describe.
+	HavePatterns bool
 }
+
+// Alerts names the counters that are not zero and mean something was lost
+// or missed: the things to look at first.
+func (r healthReport) Alerts() []string {
+	var alerts []string
+	add := func(n uint64, what string) {
+		if n > 0 {
+			alerts = append(alerts, fmt.Sprintf("%s %d", what, n))
+		}
+	}
+
+	add(r.Collector.KernelDrops, "kernel drops")
+	add(r.Collector.TrackedCapHits, "tracked-process cap hits")
+	add(r.Bus.Dropped, "bus drops")
+	add(r.Engine.SequencesPossiblyTruncated, "sequences possibly truncated")
+	add(r.Engine.SequenceSearchesAborted, "sequence searches aborted")
+	add(r.Engine.ThresholdCounterCapHits, "threshold counter cap hits")
+	add(r.Engine.DescendantWalksTruncated, "descendant walks truncated")
+	add(r.Engine.FullRescans, "full rescans")
+	add(uint64(len(r.PatternProblems)), "pattern errors")
+
+	return alerts
+}
+
+// alertPrefix begins the line of a report that lists its alerts. The
+// interfaces look for it to draw that line in a warning colour.
+const alertPrefix = "ATTENTION "
 
 func (h *health) Report() healthReport {
 	h.collection.mu.Lock()
 	failure := h.collection.failure
 	h.collection.mu.Unlock()
 
-	return healthReport{
+	report := healthReport{
 		Requested: h.collection.requested,
 		Skipped:   h.collection.skipped,
 		Failure:   failure,
@@ -52,6 +89,15 @@ func (h *health) Report() healthReport {
 		Engine:    h.engine.Metrics(),
 		Excluded:  h.engine.ExcludedFindings(),
 	}
+
+	if h.patterns != nil {
+		state := h.patterns.State()
+		report.HavePatterns = true
+		report.Patterns, report.Exclusions = len(state.Patterns), len(state.Exclusions)
+		report.PatternProblems = state.Problems()
+	}
+
+	return report
 }
 
 // otherCollectors names the collectors that are not selectable, by platform.
@@ -79,7 +125,12 @@ func (r healthReport) Lines() []string {
 		backend += fmt.Sprintf("  snapshot every %s", processPollInterval)
 	}
 
-	lines := []string{backend}
+	var lines []string
+	if alerts := r.Alerts(); len(alerts) > 0 {
+		lines = append(lines, alertPrefix+strings.Join(alerts, "   "), "")
+	}
+
+	lines = append(lines, backend)
 	for _, skip := range r.Skipped {
 		lines = append(lines, "  skipped "+skip.String())
 	}
@@ -118,6 +169,13 @@ func (r healthReport) Lines() []string {
 		fmt.Sprintf("          threshold counters %d   evicted %d   cap hits %d",
 			e.ThresholdCounters, e.ThresholdCountersEvicted, e.ThresholdCounterCapHits),
 	)
+
+	if r.HavePatterns {
+		lines = append(lines, fmt.Sprintf("Patterns  loaded %d   exclusions %d   errors %d", r.Patterns, r.Exclusions, len(r.PatternProblems)))
+		for _, problem := range r.PatternProblems {
+			lines = append(lines, "  ✗ "+problem)
+		}
+	}
 
 	if len(r.Excluded) > 0 {
 		rules := make([]string, 0, len(r.Excluded))
@@ -166,6 +224,10 @@ func (r healthReport) LogLine() string {
 		fmt.Sprintf("threshold_counters=%d threshold_counters_evicted=%d threshold_counter_cap_hits=%d",
 			e.ThresholdCounters, e.ThresholdCountersEvicted, e.ThresholdCounterCapHits),
 	)
+
+	if r.HavePatterns {
+		fields = append(fields, fmt.Sprintf("patterns=%d exclusions=%d pattern_errors=%d", r.Patterns, r.Exclusions, len(r.PatternProblems)))
+	}
 
 	return strings.Join(fields, " ")
 }

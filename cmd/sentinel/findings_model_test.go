@@ -142,7 +142,7 @@ func TestFindingsModelFiltersAndSorts(t *testing.T) {
 		t.Errorf("listeners were told %d times, want 11", changes)
 	}
 
-	if got := (findingFilter{Severity: core.SeverityHigh, OldestFirst: true}).String(); got != "severity: HIGH   status: all   rule: all   oldest first" {
+	if got := (findingFilter{Severity: core.SeverityHigh, OldestFirst: true}).String(); got != "sev:HIGH  status:all  rule:all  oldest first" {
 		t.Errorf("filter description = %q", got)
 	}
 	if next(filterSeverities, "") != core.SeverityCritical || next(filterSeverities, core.SeverityInfo) != "" || next(filterStatuses, core.StatusDismissed) != "" {

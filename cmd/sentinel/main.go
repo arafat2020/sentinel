@@ -78,9 +78,9 @@ func main() {
 	// A file that cannot be read or parsed falls back to the defaults. A
 	// file with some bad entries loads the good ones; the bad ones are
 	// reported here and again inside each interface.
-	patternSet, err := loadPatternSet(patternsPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "sentinel: could not load patterns (%v), using defaults\n", err)
+	patternSet, patternErr := loadPatternSet(patternsPath)
+	if patternErr != nil {
+		fmt.Fprintf(os.Stderr, "sentinel: could not load patterns (%v), using defaults\n", patternErr)
 	}
 	for _, warning := range patternSet.Warnings {
 		fmt.Fprintf(os.Stderr, "sentinel: %s: warning: %s\n", patternsPath, warning)
@@ -121,12 +121,12 @@ func main() {
 	}
 
 	if *headless {
-		runHeadless(ctx, patternSet, patternsPath, eventStore, collectors)
+		runHeadless(ctx, patternSet, patternsPath, patternErr, eventStore, collectors)
 		return
 	}
 
 	if *desktop {
-		runDesktopMode(ctx, patternSet, patternsPath, eventStore, collectors)
+		runDesktopMode(ctx, patternSet, patternsPath, patternErr, eventStore, collectors)
 		return
 	}
 
@@ -156,8 +156,15 @@ func main() {
 	// spawning Python) is the suspicious-child-process YAML pattern.
 	procEngine := processDetector.NewEngine(registry)
 
+	// Findings are kept whole, stored with a status, and shown again after
+	// a restart.
+	findings := newFindingsModel(eventStore)
+	if _, err := findings.LoadRecent(*collectors.recentFindings); err != nil {
+		fmt.Fprintf(os.Stderr, "sentinel: could not load stored findings: %v\n", err)
+	}
+
 	sink := finding.NewSinkFunc(func(f *core.Finding) {
-		ui.AddFindingWithEvidence(findingLine(f), f.Evidence)
+		findings.Add(*f)
 	})
 	coordinator := processDetector.NewCoordinator(procEngine, sink)
 
@@ -170,23 +177,25 @@ func main() {
 
 	// ── Settings page ─────────────────────────────────────────────────────────
 
+	// The one path between the patterns file and the engine: the editors
+	// save through it, and it applies changes made to the file by hand.
+	patternFile := newPatternStore(patternsPath, corrEngine, patternSet, patternErr)
+
 	settingsPage := NewSettingsPage(ui.app, eventStore)
 	ui.SetSettingsPage(settingsPage)
-	ui.SetHealth((&health{collection: collection, bus: bus, engine: corrEngine}).Text)
+	ui.SetHealth((&health{collection: collection, bus: bus, engine: corrEngine, patterns: patternFile}).Text)
 
 	// ── Pattern editor TUI page ───────────────────────────────────────────────
 
-	patternsPage := NewPatternsPage(
-		ui.app,
-		ui.pages,
-		patternsPath,
-		patternSet.Patterns,
-		func(updated []correlation.BehaviorPattern) {
-			corrEngine.SetPatterns(updated)
-		},
-	)
-	patternsPage.SetLoadErrors(patternSet.Errors)
+	patternsPage := NewPatternsPage(ui.app, ui.pages, patternsPath, nil, nil)
+	patternsPage.SetStore(patternFile)
 	ui.SetPatternsPage(patternsPage)
+
+	ui.SetFindings(findings, patternFile)
+	ui.SetStatusLine(func() string {
+		total, unhandled := findings.Counts()
+		return summaryLine(string(collection.Active()), patternFile.State(), total, unhandled)
+	})
 
 	// ── Bus subscribers → UI tabs ─────────────────────────────────────────────
 
@@ -291,6 +300,9 @@ func main() {
 	)
 
 	bus.Start(ctx)
+	if err := patternFile.Watch(ctx, watchDebounce); err != nil {
+		ui.AddProcess(fmt.Sprintf("patterns file is not being watched for changes: %v", err))
+	}
 	for _, line := range collection.Describe() {
 		ui.AddProcess(line)
 	}

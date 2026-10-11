@@ -247,6 +247,12 @@ For a restricted account, the collectors need:
 `install.sh` reports which backend `auto` will most likely choose on the host,
 from the kernel version and the presence of BTF.
 
+The unit it writes runs `sentinel --headless` with `StateDirectory=sentinel`
+and `WorkingDirectory=/var/lib/sentinel`. Started like that, with no terminal,
+Sentinel skips its password prompt (the password guards the TUI and the
+desktop UI; see the README) and stops within a fraction of a second of
+`systemctl stop`.
+
 ## Building
 
 `go build` needs no clang: the compiled eBPF objects and their Go bindings
@@ -291,6 +297,18 @@ The stress test:
 sudo sentinel --headless --health-interval=10s &
 go run ./tools/execstress -rate 5000 -duration 60s
 ```
+
+Detection under process fan-out (one parent starting 5,000 processes a second,
+every guide pattern loaded, and the download-and-execute attack played every
+ten seconds); it reports how many attacks were detected, the detection latency,
+CPU and bus depth:
+
+```bash
+go build -o /tmp/sentinel ./cmd/sentinel && go build -o /tmp/execstress ./tools/execstress
+sudo python3 tools/fanoutstress/fanout.py /tmp/sentinel /tmp/execstress
+```
+
+`--pprof-addr=127.0.0.1:6060` serves Go profiling data from a running Sentinel.
 
 ## The `/proc` reader (reference)
 

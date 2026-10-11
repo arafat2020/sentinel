@@ -45,3 +45,8 @@ func (e *Engine) EvaluateProcesses(tree *ProcessTree, identities []core.ProcessI
 
 	return findings
 }
+
+// HasRules reports whether any rule is registered.
+func (e *Engine) HasRules() bool {
+	return len(e.registry.Rules()) > 0
+}

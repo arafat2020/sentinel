@@ -30,6 +30,23 @@ func runPasswordGate(s *store.Store, resetMode bool) {
 	verifyPassword(s)
 }
 
+// passwordGateApplies reports whether to ask for the password before
+// starting.
+//
+// The password protects the interactive interfaces: it stops someone at the
+// keyboard from opening the TUI. Headless mode started without a terminal,
+// which is how systemd, cron and nohup start it, has nobody to ask and
+// nothing interactive to protect; it writes findings to its log and stores
+// events exactly as it would after a prompt. Asking anyway used to make the
+// service unusable: with no password set it re-prompted for ever, and with
+// one set it failed three empty attempts and exited.
+//
+// Headless mode started from a terminal still asks, and so does everything
+// that is not headless.
+func passwordGateApplies(headless, reset, stdinIsTerminal bool) bool {
+	return !headless || reset || stdinIsTerminal
+}
+
 // setupPassword is shown on first install — no existing password.
 func setupPassword(s *store.Store) {
 	fmt.Println("Welcome to Sentinel. Please create a password to protect the TUI.")

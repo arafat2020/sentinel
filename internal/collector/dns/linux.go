@@ -5,6 +5,7 @@ package dns
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/arafat2020/sentinel/internal/core"
 	"github.com/google/gopacket"
@@ -21,6 +22,10 @@ type linuxCollector struct {
 	attributor Attributor
 }
 
+// linuxReadTimeout is how long a packet read waits before giving the handle
+// up for a moment, which bounds how long Close can take.
+const linuxReadTimeout = 250 * time.Millisecond
+
 // NewLinuxCollector opens a live packet capture on the given network
 // device (e.g. "eth0", or "any" to capture on all interfaces) and filters
 // for DNS traffic. Requires libpcap to be installed on the host.
@@ -28,11 +33,16 @@ func NewLinuxCollector(
 	device string,
 	attributor Attributor,
 ) (*linuxCollector, error) {
+	// The read must time out. With pcap.BlockForever the reader holds the
+	// handle's lock for as long as no DNS packet arrives, and Close, which
+	// needs that lock, waits with it: on a quiet host Sentinel then never
+	// finishes shutting down and has to be killed. A timed-out read is
+	// simply retried, so no packet is lost.
 	handle, err := pcap.OpenLive(
 		device,
 		1600,
 		true,
-		pcap.BlockForever,
+		linuxReadTimeout,
 	)
 
 	if err != nil {

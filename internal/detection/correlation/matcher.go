@@ -160,12 +160,13 @@ func anyChainSatisfies(
 	// Nothing is required, so there is nothing a chain could fail to
 	// provide. Without this a process would stop matching as soon as its
 	// last event aged out of the window.
-	if len(role.events) == 0 {
+	if len(role.events) == 0 && len(role.implied) == 0 {
 		return true
 	}
 
 	for _, chain := range chains {
-		if role.satisfiedBy(window(chain)) {
+		events := window(chain)
+		if role.satisfiedBy(events) && role.impliedBy(events) {
 			return true
 		}
 	}
@@ -182,12 +183,23 @@ type world interface {
 	// The each* methods stop when visit returns false.
 	eachChild(parent core.ProcessIdentity, visit func(core.ProcessIdentity) bool)
 	// eachDescendant visits the descendants of parent down to maxDepth
-	// generations. The walk is bounded; an implementation that cuts it
-	// short records that it did.
-	eachDescendant(parent core.ProcessIdentity, maxDepth int, visit func(core.ProcessIdentity) bool)
+	// generations. The walk is bounded, and reports whether it was cut
+	// short before reaching every descendant.
+	eachDescendant(parent core.ProcessIdentity, maxDepth int, visit func(core.ProcessIdentity) bool) (truncated bool)
+	// walkTruncated is told when a walk was cut short and nothing else
+	// could make up for it.
+	walkTruncated()
 	eachRelationship(visit func(parent, child core.ProcessIdentity) bool)
 	eachProcess(visit func(core.ProcessIdentity) bool)
 	chainsOf(core.ProcessIdentity) []*Chain
+	// childCount is how many children a process has, visible or not.
+	childCount(parent core.ProcessIdentity) int
+	// having returns the processes that may have had an event of the given
+	// type: every process that has one in the window is in it, and others
+	// may be. ok is false when the world keeps no such record.
+	having(eventType core.EventType) (processes map[core.ProcessIdentity]struct{}, ok bool)
+	// searched is told how many candidate bindings a search considered.
+	searched(candidates uint64)
 	// thresholdMet reports whether the process currently meets a counting
 	// requirement.
 	thresholdMet(requirement *compiledEvent, process core.ProcessIdentity) bool
@@ -232,6 +244,8 @@ func (m *Matcher) find(
 		s.searchAround(seeds)
 	}
 
+	w.searched(s.tried)
+
 	return s.matches
 }
 
@@ -249,6 +263,8 @@ type search struct {
 	done    []bool // relationship patterns already satisfied
 
 	matches []Match
+	// tried counts the candidate bindings considered.
+	tried uint64
 }
 
 func (s *search) searchEverything() {
@@ -296,14 +312,48 @@ func (s *search) satisfy() {
 		}
 
 	case s.isBound[link.parent]:
+		parent := s.bound[link.parent]
+
+		// A parent can have a great many children, of which the role
+		// wants the few that did something in particular. When there are
+		// fewer processes that did that thing than there are children to
+		// look through, start from those and keep the ones this parent is
+		// above.
+		candidates, indexed := s.candidatesFor(link.child)
+		below := func() {
+			for identity := range candidates {
+				if s.isAncestor(parent, identity, link.depth) {
+					s.try(link.child, identity)
+				}
+			}
+		}
+
+		// Going through the children costs one step each; going through
+		// the candidates costs a walk up the tree each, of at most depth
+		// steps.
+		if indexed && len(candidates)*link.depth < s.world.childCount(parent) {
+			below()
+			break
+		}
+
 		visit := func(identity core.ProcessIdentity) bool {
 			s.try(link.child, identity)
 			return true
 		}
 		if link.depth == 1 {
-			s.world.eachChild(s.bound[link.parent], visit)
-		} else {
-			s.world.eachDescendant(s.bound[link.parent], link.depth, visit)
+			s.world.eachChild(parent, visit)
+			break
+		}
+
+		// A walk down several generations gives up after a fixed number of
+		// processes. If it did, the candidates cover what it did not reach;
+		// without any, the walk is counted as cut short.
+		if s.world.eachDescendant(parent, link.depth, visit) {
+			if indexed {
+				below()
+			} else {
+				s.world.walkTruncated()
+			}
 		}
 
 	case s.isBound[link.child]:
@@ -334,6 +384,29 @@ func (s *search) satisfy() {
 			return true
 		})
 	}
+}
+
+// candidatesFor returns a set of processes that includes every process that
+// could fill the role, when the role requires an event of a type the world
+// keeps a record of. It picks the smallest such record.
+func (s *search) candidatesFor(role int) (map[core.ProcessIdentity]struct{}, bool) {
+	needs := s.pattern.roles[role].needs
+	if len(needs) == 0 {
+		return nil, false
+	}
+
+	var smallest map[core.ProcessIdentity]struct{}
+	for i, eventType := range needs {
+		having, ok := s.world.having(eventType)
+		if !ok {
+			return nil, false
+		}
+		if i == 0 || len(having) < len(smallest) {
+			smallest = having
+		}
+	}
+
+	return smallest, true
 }
 
 // eachAncestor visits the ancestors of a process, nearest first, up to
@@ -402,6 +475,8 @@ func (s *search) try(role int, identity core.ProcessIdentity) {
 // bind assigns identity to role if the process suits the role and is not
 // already bound to another one.
 func (s *search) bind(role int, identity core.ProcessIdentity) bool {
+	s.tried++
+
 	for i, taken := range s.bound {
 		if s.isBound[i] && taken == identity {
 			return false
@@ -449,27 +524,33 @@ func (s *search) suits(role int, identity core.ProcessIdentity) bool {
 
 // emit records the current bindings as a match.
 func (s *search) emit() {
-	processes := make([]core.Process, len(s.bound))
+	for i := range s.bound {
+		if !s.isBound[i] {
+			return
+		}
+	}
 
+	// Most bindings fail here, so nothing is built for the match until
+	// the sequence has been found.
+	var events []core.Event
+	if s.pattern.sequence != nil {
+		found, ok := s.findSequence()
+		if !ok {
+			return
+		}
+		events = found
+	}
+
+	processes := make([]core.Process, len(s.bound))
 	for i, identity := range s.bound {
 		process, ok := s.world.process(identity)
-		if !s.isBound[i] || !ok {
+		if !ok {
 			return
 		}
 		processes[i] = *process
 	}
 
-	match := Match{Processes: processes}
-
-	if s.pattern.sequence != nil {
-		events, ok := s.findSequence()
-		if !ok {
-			return
-		}
-		match.Events = events
-	}
-
-	s.matches = append(s.matches, match)
+	s.matches = append(s.matches, Match{Processes: processes, Events: events})
 }
 
 // findSequence looks, among the in-window events of the bound processes,
@@ -565,8 +646,8 @@ func (w *sliceWorld) eachChild(parent core.ProcessIdentity, visit func(core.Proc
 	}
 }
 
-func (w *sliceWorld) eachDescendant(parent core.ProcessIdentity, maxDepth int, visit func(core.ProcessIdentity) bool) {
-	walkDescendants(w.topology, parent, maxDepth, nil, visit)
+func (w *sliceWorld) eachDescendant(parent core.ProcessIdentity, maxDepth int, visit func(core.ProcessIdentity) bool) bool {
+	return walkDescendants(w.topology, parent, maxDepth, nil, visit)
 }
 
 func (w *sliceWorld) eachRelationship(visit func(parent, child core.ProcessIdentity) bool) {
@@ -590,6 +671,19 @@ func (w *sliceWorld) chainsOf(identity core.ProcessIdentity) []*Chain {
 }
 
 func (w *sliceWorld) sequenceNotFound([]core.ProcessIdentity, bool) {}
+
+func (w *sliceWorld) childCount(parent core.ProcessIdentity) int {
+	return len(w.topology.children[parent])
+}
+
+func (w *sliceWorld) searched(uint64) {}
+
+func (w *sliceWorld) walkTruncated() {}
+
+// A sliceWorld keeps no record of which processes have had which events.
+func (w *sliceWorld) having(core.EventType) (map[core.ProcessIdentity]struct{}, bool) {
+	return nil, false
+}
 
 // thresholdMet counts over the events the chains happen to hold: there is no
 // engine here keeping counters as events arrive.

@@ -451,6 +451,24 @@ exclude:
 
 Because the role cannot be filled, no finding is formed and nothing is counted.
 
+An entry may carry a `description` saying why it is there. It has no effect on
+matching; it is what "Exclude…" in the Findings view asks you for, so that the
+next person to read the file knows what the exclusion is for:
+
+```yaml
+exclude:
+  - role: payload
+    match:
+      exe: { prefix: /opt/deploy/ }
+      user: deploy
+    description: Deploy helper unpacks and runs its own tools
+```
+
+You rarely need to write these by hand. Select a finding, choose **Exclude…**,
+pick the role whose process is the known-good one, keep or loosen the fields
+offered, and Sentinel shows the YAML above before adding it, either to the
+pattern (this rule only) or to the top-level `exclusions` (all rules).
+
 ### Global: `exclusions`
 
 A top-level exclusion **drops a finding** if any of the processes in it matches.
@@ -984,6 +1002,29 @@ connection followed within 30 seconds by the write; it cannot ask for the
 process's first connection specifically.
 
 ---
+
+## Editing patterns as YAML inside Sentinel
+
+Everything in this guide can be edited without leaving Sentinel or restarting
+it. In the Patterns tab of the TUI: `Y` opens the selected pattern as YAML,
+`T` starts a new one from a commented template, `X` opens the top-level
+exclusions. The desktop app has the same three as buttons.
+
+- What you see is the pattern exactly as it is saved.
+- `Ctrl+S` (or **Check and save**) runs the text through the loader described
+  under [Validation and errors](#validation-and-errors). Every problem is
+  listed with its path and, where the YAML parser knows it, its line; the
+  pattern is saved only when there are none.
+- If Sentinel may not write `configs/patterns.yaml`, the editor says so. You
+  can still edit the file by hand: it is watched, and changes are applied
+  within a moment. Entries with mistakes are left out and listed in the
+  Patterns tab, the TUI footer and the Health view (and logged in headless
+  mode); everything else in the file stays active.
+- Reloading does not report again what was already reported.
+
+The form editor described next is still there for the simple fields. A pattern
+that uses anything else shows "⚙ advanced fields — edit in YAML" and a **YAML**
+button.
 
 ## Using the TUI pattern editor (tab 6)
 

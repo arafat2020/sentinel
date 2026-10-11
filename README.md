@@ -68,13 +68,25 @@ The installer:
 4. Verifies the SHA-256 checksum
 5. Installs to `/usr/local/bin/sentinel`
 6. Offers to install `libpcap` (required for DNS telemetry)
-7. Offers to create and enable a systemd service
+7. Checks and offers to install the Linux runtime libraries used by the desktop UI; these are required by the current binary even in headless mode, but do not install a display server
+8. Offers to create and enable a systemd service
 
 After install:
 
 ```bash
 sudo sentinel
 ```
+
+To remove Sentinel's binary and systemd service while preserving its database
+and configuration files:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/arafat2020/sentinel/main/uninstall.sh | sudo bash
+```
+
+To skip the confirmation prompt, use `sudo bash -s -- --yes` after the pipe.
+Data files are kept because Sentinel stores them relative to its working
+directory.
 
 ### Linux (build from source)
 

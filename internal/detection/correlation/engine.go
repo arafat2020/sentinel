@@ -1228,10 +1228,27 @@ func (e *Engine) finding(pattern *compiledPattern, match Match, now time.Time) c
 			Processes: processes,
 			Roles:     roles,
 			Events:    e.evidenceEvents(pattern, match, now),
+			Captures:  capturedEvents(pattern, match),
 
 			PreviousImages: previous,
 		},
 	}
+}
+
+// capturedEvents pairs each capture name of the pattern's sequence with the
+// event the match gave it. A match's events are its sequence's, one per step.
+func capturedEvents(pattern *compiledPattern, match Match) []core.Capture {
+	if pattern.Sequence == nil || len(match.Events) < len(pattern.Sequence.Steps) {
+		return nil
+	}
+
+	var captures []core.Capture
+	for i, step := range pattern.Sequence.Steps {
+		if step.Capture != "" {
+			captures = append(captures, core.Capture{Name: step.Capture, Event: match.Events[i]})
+		}
+	}
+	return captures
 }
 
 // MaxEvidenceEvents is the most events a finding carries as evidence.

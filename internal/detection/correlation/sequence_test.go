@@ -826,3 +826,32 @@ func TestSequenceWorksWithoutAnEngine(t *testing.T) {
 		t.Fatalf("reversed sequence matched: %+v", got)
 	}
 }
+
+// A finding records what its sequence captured, by name, so that it still
+// says so after the rule has changed.
+func TestFindingRecordsItsCaptures(t *testing.T) {
+	_, findings := runDropper(t, dropAndRun(false), "/tmp/payload", "/tmp/payload")
+	if len(findings) != 1 {
+		t.Fatalf("findings = %d", len(findings))
+	}
+
+	captures := findings[0].Evidence.Captures
+	if len(captures) != 1 {
+		t.Fatalf("captures = %+v, want the one the pattern names", captures)
+	}
+	if got := captures[0]; got.Event.Type != core.EventFileCreate || got.Event.File == nil || got.Event.File.Path != "/tmp/payload" || got.Name == "" {
+		t.Errorf("capture = %+v", got)
+	}
+
+	// A pattern without a sequence, or whose steps capture nothing, records
+	// none.
+	h := newHarness(testWindow)
+	h.SetPatterns([]BehaviorPattern{{Name: "p", Processes: []ProcessPattern{named("p", "curl", core.EventNetworkConnect)}}})
+	p := proc(1, 0, "curl", at(0))
+	h.start(p, at(0))
+	h.connect(p, at(time.Second))
+	plain := h.detect(at(time.Second))
+	if len(plain) != 1 || plain[0].Evidence.Captures != nil {
+		t.Errorf("a pattern without captures recorded %+v", plain)
+	}
+}

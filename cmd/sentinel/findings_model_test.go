@@ -253,8 +253,9 @@ func TestFindingRowAndDetail(t *testing.T) {
 		"+1.060s   NETWORK_CONNECT  downloader tcp 203.0.113.9:80",
 		"+4.960s   PROCESS_START    payload    /tmp/x --daemon",
 		"+1m04s    DNS_QUERY        payload    c2.example (A)",
-		// What the sequence captured.
-		"CAPTURES",
+		// What the sequence captured: not stored with this finding, so
+		// worked out from the rule, and labelled as such.
+		"CAPTURES (derived from the rule as it is loaded now)",
 		"  $dropped = FILE_CREATE  /tmp/x",
 	} {
 		if !strings.Contains(text, want) {
@@ -317,5 +318,49 @@ func TestSummaryLine(t *testing.T) {
 	state.FileError = "broken"
 	if got := summaryLine("poll", state, 0, 0); !strings.Contains(got, "pattern errors: 1") {
 		t.Errorf("summary = %q", got)
+	}
+}
+
+// A finding carries its own captures. They are shown as recorded whatever has
+// happened to the rule since: edited, renamed, or removed.
+func TestStoredCapturesDoNotDependOnTheRule(t *testing.T) {
+	f := downloadFinding(0)
+	f.Evidence.Captures = []core.Capture{{Name: "dropped", Event: f.Evidence.Events[1]}}
+	item := findingItem{Key: "k", Finding: f, Status: core.StatusNew}
+
+	changed := downloadPattern()
+	changed.Sequence.Steps = []correlation.SequenceStep{{Role: "downloader", Type: core.EventNetworkConnect, Capture: "conn"}}
+
+	for name, patterns := range map[string][]correlation.BehaviorPattern{
+		"rule as it was": {downloadPattern()},
+		"rule edited":    {changed},
+		"rule removed":   nil,
+	} {
+		text := strings.Join(detailLines(item, patterns), "\n")
+		if !strings.Contains(text, "\nCAPTURES\n  $dropped = FILE_CREATE  /tmp/x") {
+			t.Errorf("%s: stored capture not shown as recorded:\n%s", name, text)
+		}
+		if strings.Contains(text, "derived") || strings.Contains(text, "$conn") {
+			t.Errorf("%s: captures were derived although the finding has its own:\n%s", name, text)
+		}
+	}
+
+	captures, derived := findingCaptures(f, nil)
+	if derived || len(captures) != 1 || captures[0].Name != "dropped" {
+		t.Errorf("captures = %+v, derived %v", captures, derived)
+	}
+
+	// An old finding: derived when the rule is there, absent when not.
+	old := downloadFinding(0)
+	if captures, derived := findingCaptures(old, []correlation.BehaviorPattern{downloadPattern()}); !derived || len(captures) != 1 {
+		t.Errorf("old finding with its rule: %+v, derived %v", captures, derived)
+	}
+	if captures, derived := findingCaptures(old, nil); derived || len(captures) != 0 {
+		t.Errorf("old finding without its rule: %+v, derived %v", captures, derived)
+	}
+
+	// Captures are part of the stored and copied form.
+	if text := findingJSON(item); !strings.Contains(text, `"captures"`) || !strings.Contains(text, `"name": "dropped"`) {
+		t.Errorf("JSON lacks the captures:\n%s", text)
 	}
 }

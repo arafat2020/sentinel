@@ -97,6 +97,10 @@ type Engine struct {
 	pendingSince time.Time
 	latency      latencyHistogram
 
+	// orderTolerance is the order_tolerance of a sequence that does not
+	// set one.
+	orderTolerance time.Duration
+
 	// graves lists exited processes in the order they exited, from
 	// oldestGrave on; tombstones is how many records are tombstones.
 	graves        []core.ProcessIdentity
@@ -226,6 +230,45 @@ type Metrics struct {
 // Option configures an Engine.
 type Option func(*Engine)
 
+// SetDefaultOrderTolerance sets the order_tolerance used by sequences that do
+// not set their own, and applies it to the patterns already loaded. What has
+// been reported stays reported.
+//
+// The default exists because sources stamp events differently: a source that
+// polls stamps an event when it noticed it, up to a poll interval late, so
+// two events can carry timestamps in the opposite order to the one they
+// happened in. DefaultOrderTolerance covers a two-second poll. When every
+// source reports events as they happen, the disorder left is the delay of
+// the slowest of them, and EventDrivenOrderTolerance covers that.
+func (e *Engine) SetDefaultOrderTolerance(tolerance time.Duration) {
+	if tolerance < 0 {
+		tolerance = 0
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if tolerance == e.orderTolerance {
+		return
+	}
+	e.orderTolerance = tolerance
+
+	patterns := make([]BehaviorPattern, len(e.patterns))
+	for i, compiled := range e.patterns {
+		patterns[i] = compiled.BehaviorPattern
+	}
+	e.load(patterns)
+	e.rescan = true
+}
+
+// DefaultOrderToleranceInUse returns the order_tolerance currently given to
+// sequences that do not set their own.
+func (e *Engine) DefaultOrderToleranceInUse() time.Duration {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.orderTolerance
+}
+
 // DefaultMaxTombstones is how many exited processes the engine remembers at
 // once. Each is kept for one window, or until this many newer ones exist.
 const DefaultMaxTombstones = 65536
@@ -249,21 +292,22 @@ func WithClock(now func() time.Time) Option {
 
 func NewEngine(window time.Duration, options ...Option) *Engine {
 	e := &Engine{
-		maxTombstones: DefaultMaxTombstones,
-		window:        window,
-		now:           time.Now,
-		records:       make(map[core.ProcessIdentity]*record),
-		pids:          make(map[int32]core.ProcessIdentity),
-		tree:          newTopology(),
-		orphans:       make(map[int32]map[core.ProcessIdentity]struct{}),
-		chains:        make(map[core.ProcessIdentity][]*Chain),
-		patterns:      nil, // compiled below, once the window is known
-		matcher:       NewMatcher(),
-		rescan:        true,
-		emitted:       make(map[string]time.Time),
-		excluded:      make(map[string]int),
-		rates:         make(map[string]*rateState),
-		counters:      make(map[counterKey]*thresholdCounter),
+		orderTolerance: DefaultOrderTolerance,
+		maxTombstones:  DefaultMaxTombstones,
+		window:         window,
+		now:            time.Now,
+		records:        make(map[core.ProcessIdentity]*record),
+		pids:           make(map[int32]core.ProcessIdentity),
+		tree:           newTopology(),
+		orphans:        make(map[int32]map[core.ProcessIdentity]struct{}),
+		chains:         make(map[core.ProcessIdentity][]*Chain),
+		patterns:       nil, // compiled below, once the window is known
+		matcher:        NewMatcher(),
+		rescan:         true,
+		emitted:        make(map[string]time.Time),
+		excluded:       make(map[string]int),
+		rates:          make(map[string]*rateState),
+		counters:       make(map[counterKey]*thresholdCounter),
 	}
 
 	for _, option := range options {
@@ -1430,6 +1474,12 @@ func (e *Engine) load(patterns []BehaviorPattern) {
 	for i, pattern := range patterns {
 		// An invalid pattern compiles to one that never matches.
 		compiled, _ := compilePattern(pattern, e.window)
+		// A sequence that does not say how much disorder it tolerates
+		// takes the engine's default, which depends on how events are
+		// being collected. One that says so keeps what it says.
+		if compiled.sequence != nil && pattern.Sequence != nil && pattern.Sequence.OrderTolerance == nil {
+			compiled.sequence.tolerance = e.orderTolerance
+		}
 		e.patterns[i] = compiled
 		e.deep = e.deep || compiled.deep
 

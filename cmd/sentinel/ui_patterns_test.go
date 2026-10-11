@@ -295,8 +295,8 @@ func TestLoadPatternSetFallsBackOnlyForUnusableFiles(t *testing.T) {
 	if err == nil {
 		t.Fatal("a malformed file should be reported")
 	}
-	if !reflect.DeepEqual(set.Patterns, correlation.DefaultPatterns()) {
-		t.Errorf("fallback patterns = %+v, want the defaults", set.Patterns)
+	if !reflect.DeepEqual(set.Patterns, correlation.ShippedPatterns()) {
+		t.Errorf("fallback patterns = %+v, want the shipped defaults", set.Patterns)
 	}
 }
 

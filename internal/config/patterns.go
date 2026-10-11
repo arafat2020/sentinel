@@ -320,7 +320,7 @@ func EnsureDefaultFile(path string) error {
 	if _, err := os.Stat(path); err == nil {
 		return nil // already exists
 	}
-	return SavePatterns(path, correlation.DefaultPatterns())
+	return SavePatterns(path, correlation.ShippedPatterns())
 }
 
 func convertPattern(def PatternDef) (correlation.BehaviorPattern, error) {

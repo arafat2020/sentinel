@@ -54,7 +54,7 @@ func findingLine(f *core.Finding) string {
 func loadPatternSet(path string) (config.PatternSet, error) {
 	set, err := config.LoadPatterns(path)
 	if err != nil {
-		return config.PatternSet{Patterns: correlation.DefaultPatterns()}, err
+		return config.PatternSet{Patterns: correlation.ShippedPatterns()}, err
 	}
 
 	return set, nil

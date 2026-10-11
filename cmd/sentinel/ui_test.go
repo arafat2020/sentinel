@@ -108,7 +108,14 @@ func (h *uiHarness) start(app *tview.Application) {
 		// Resource wake-ups travel the same path as keys but are not
 		// keystrokes; keep them out of key()'s accounting.
 		if h.ui != nil && event == h.ui.resourceTick {
-			defer func() { h.ticks <- struct{}{} }()
+			// Never block the loop on a test that is not counting: the
+			// loop is also woken by changes the test makes through it.
+			defer func() {
+				select {
+				case h.ticks <- struct{}{}:
+				default:
+				}
+			}()
 			return capture(event)
 		}
 		h.seen <- struct{}{}

@@ -46,11 +46,12 @@ func (f findingFilter) String() string {
 		return value
 	}
 
-	order := "newest first"
+	// Kept short: it shares one 80-column line with the counts.
+	order := "newest"
 	if f.OldestFirst {
-		order = "oldest first"
+		order = "oldest"
 	}
-	return fmt.Sprintf("severity: %s   status: %s   rule: %s   %s",
+	return fmt.Sprintf("sev:%s  status:%s  rule:%s  %s first",
 		or(string(f.Severity), "all"), or(string(f.Status), "all"), or(f.Rule, "all"), order)
 }
 
@@ -286,6 +287,9 @@ func rowOf(item findingItem) findingRow {
 		Rule:     f.Rule,
 		Title:    f.Title,
 		Status:   string(item.Status),
+	}
+	if len(row.Time) > 14 {
+		row.Time = row.Time[:14]
 	}
 	if row.Severity == "" {
 		row.Severity = "-"

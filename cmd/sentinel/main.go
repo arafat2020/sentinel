@@ -183,7 +183,7 @@ func main() {
 
 	settingsPage := NewSettingsPage(ui.app, eventStore)
 	ui.SetSettingsPage(settingsPage)
-	ui.SetHealth((&health{collection: collection, bus: bus, engine: corrEngine, patterns: patternFile}).Text)
+	ui.SetHealthReport((&health{collection: collection, bus: bus, engine: corrEngine, patterns: patternFile}).Report)
 
 	// ── Pattern editor TUI page ───────────────────────────────────────────────
 

@@ -100,93 +100,239 @@ func (h *health) Report() healthReport {
 	return report
 }
 
-// otherCollectors names the collectors that are not selectable, by platform.
-func otherCollectors() string {
-	network := fmt.Sprintf("network: poll every %s", processPollInterval)
+// otherCollectors names the collectors that are not selectable, by platform,
+// as label and description pairs.
+func otherCollectors() [][2]string {
+	network := [2]string{"Network", fmt.Sprintf("poll every %s", processPollInterval)}
 
 	switch runtime.GOOS {
 	case "linux":
-		return network + "   dns: libpcap   file: fanotify"
+		return [][2]string{network, {"DNS", "libpcap"}, {"File", "fanotify"}}
 	case "darwin":
-		return network + "   dns: libpcap   file: Endpoint Security"
+		return [][2]string{network, {"DNS", "libpcap"}, {"File", "Endpoint Security"}}
 	case "windows":
-		return network + "   dns: Npcap   file: ReadDirectoryChangesW"
+		return [][2]string{network, {"DNS", "Npcap"}, {"File", "ReadDirectoryChangesW"}}
 	default:
-		return network
+		return [][2]string{network}
 	}
 }
 
-// Lines renders the report for a person to read.
-func (r healthReport) Lines() []string {
+// healthCell is one named value of the report.
+type healthCell struct {
+	Label string
+	Value string
+	// Zero marks a count of nothing, which a view may play down. Bad marks
+	// a value that means something was lost or missed when it is not zero.
+	Zero bool
+	Bad  bool
+}
+
+// healthNote is a line of a section that is a sentence rather than a value.
+type healthNote struct {
+	Label string // optional; aligned with the cells' labels
+	Text  string
+	Bad   bool
+}
+
+// healthSection is a titled group of the report: notes first, then values
+// that a view lays out in as many columns as it has room for.
+type healthSection struct {
+	Title string
+	Notes []healthNote
+	Cells []healthCell
+}
+
+func count[T int | int64 | uint64](label string, n T) healthCell {
+	return healthCell{Label: label, Value: fmt.Sprint(n), Zero: n == 0}
+}
+
+func bad[T int | int64 | uint64](label string, n T) healthCell {
+	cell := count(label, n)
+	cell.Bad = true
+	return cell
+}
+
+func duration(label string, d time.Duration, measured bool) healthCell {
+	if !measured {
+		return healthCell{Label: label, Value: "—", Zero: true}
+	}
+	return healthCell{Label: label, Value: d.Round(time.Microsecond).String()}
+}
+
+// Sections is the report in the order and grouping every view shows it.
+func (r healthReport) Sections() []healthSection {
 	c, b, e := r.Collector, r.Bus, r.Engine
 
-	backend := fmt.Sprintf("Process collector  %s  (requested: %s)", c.Backend, r.Requested)
+	// --- Collectors: what is watching, and why not something better.
+	process := fmt.Sprintf("%s (requested: %s)", c.Backend, r.Requested)
 	if c.Backend == procevents.BackendPoll {
-		backend += fmt.Sprintf("  snapshot every %s", processPollInterval)
+		process += fmt.Sprintf(", snapshot every %s", processPollInterval)
 	}
-
-	var lines []string
-	if alerts := r.Alerts(); len(alerts) > 0 {
-		lines = append(lines, alertPrefix+strings.Join(alerts, "   "), "")
-	}
-
-	lines = append(lines, backend)
+	collectors := healthSection{Title: "Collectors", Notes: []healthNote{{Label: "Process", Text: process}}}
 	for _, skip := range r.Skipped {
-		lines = append(lines, "  skipped "+skip.String())
+		// A blank label keeps it under the collector it explains.
+		collectors.Notes = append(collectors.Notes, healthNote{Label: " ", Text: "skipped " + skip.String()})
 	}
 	if r.Failure != "" {
-		lines = append(lines, "  "+r.Failure)
+		collectors.Notes = append(collectors.Notes, healthNote{Label: " ", Text: r.Failure, Bad: true})
 	}
-	lines = append(lines, "Other collectors   "+otherCollectors())
+	for _, other := range otherCollectors() {
+		collectors.Notes = append(collectors.Notes, healthNote{Label: other[0], Text: other[1]})
+	}
+	sections := []healthSection{collectors}
 
+	// --- Process events: only an event-driven collector has counters.
 	if c.Backend != procevents.BackendPoll {
-		lines = append(lines,
-			fmt.Sprintf("Events    starts %d (at exec %d, at fork %d)   execs %d   exits %d",
-				c.Starts, c.StartsAtExec, c.StartsAtFork, c.Execs, c.Exits),
-			fmt.Sprintf("Kernel    forks %d   execs %d   exits %d   dropped %d   undecodable %d",
-				c.RawForks, c.RawExecs, c.RawExits, c.KernelDrops, c.DecodeErrors),
-			fmt.Sprintf("Quality   partial %d   args truncated %d   clock error <= %s",
-				c.Partial, c.ArgsTruncated, time.Duration(c.ClockErrorNanos)),
-			fmt.Sprintf("Tracker   tracked %d   pending %d   cap hits %d   pid reuses %d   untracked execs %d exits %d",
-				c.Tracked, c.Pending, c.TrackedCapHits, c.PIDReuses, c.UntrackedExecs, c.UntrackedExits),
-			fmt.Sprintf("Repair    reconciled starts %d   exits %d   duplicate forks %d   user cache %d (resets %d)",
-				c.ReconciledStarts, c.ReconciledExits, c.DuplicateForks, c.UserCacheSize, c.UserCacheResets),
-		)
+		clock := healthCell{Label: "clock error ≤", Value: time.Duration(c.ClockErrorNanos).String()}
+		sections = append(sections, healthSection{Title: "Process events", Cells: []healthCell{
+			count("starts", c.Starts), count("at exec", c.StartsAtExec), count("at fork", c.StartsAtFork),
+			count("execs", c.Execs), count("exits", c.Exits),
+			count("kernel forks", c.RawForks), count("kernel execs", c.RawExecs), count("kernel exits", c.RawExits),
+			bad("kernel drops", c.KernelDrops), bad("undecodable", c.DecodeErrors),
+			count("partial", c.Partial), count("args truncated", c.ArgsTruncated), clock,
+			count("tracked", c.Tracked), count("pending", c.Pending), bad("tracked cap hits", c.TrackedCapHits),
+			count("pid reuses", c.PIDReuses), count("untracked execs", c.UntrackedExecs), count("untracked exits", c.UntrackedExits),
+			count("reconciled starts", c.ReconciledStarts), count("reconciled exits", c.ReconciledExits),
+			count("duplicate forks", c.DuplicateForks), count("user cache", c.UserCacheSize), count("cache resets", c.UserCacheResets),
+		}})
 	}
 
-	lines = append(lines,
-		fmt.Sprintf("Bus       published %d   waited %d   dropped %d   depth %d/%d",
-			b.Published, b.Waited, b.Dropped, b.Depth, b.Capacity),
-		fmt.Sprintf("Engine    processes %d (exited %d, forgotten early %d)   findings %d   excluded %d   suppressed %d   active suppressions %d",
-			e.Processes, e.Tombstones, e.TombstonesEvicted, e.FindingsEmitted, e.FindingsExcluded, e.FindingsSuppressed, e.ActiveSuppressions),
-		fmt.Sprintf("Latency   event to finding: p50 %s   p99 %s   max %s   (%d findings)",
-			e.DetectionLatency.P50.Round(time.Microsecond), e.DetectionLatency.P99.Round(time.Microsecond),
-			e.DetectionLatency.Max.Round(time.Microsecond), e.DetectionLatency.Count),
-		fmt.Sprintf("Search    candidates tried %d   evaluations with work deferred %d   processes waiting %d   full rescans %d",
-			e.SearchCandidates, e.SearchWorkDeferred, e.DeferredProcesses, e.FullRescans),
-		fmt.Sprintf("Limits    descendant walks truncated %d   sequences possibly truncated %d   sequence searches aborted %d",
-			e.DescendantWalksTruncated, e.SequencesPossiblyTruncated, e.SequenceSearchesAborted),
-		fmt.Sprintf("          threshold counters %d   evicted %d   cap hits %d",
-			e.ThresholdCounters, e.ThresholdCountersEvicted, e.ThresholdCounterCapHits),
-	)
+	// --- Event bus.
+	sections = append(sections, healthSection{Title: "Event bus", Cells: []healthCell{
+		count("published", b.Published), count("waited", b.Waited), bad("dropped", b.Dropped),
+		{Label: "depth", Value: fmt.Sprintf("%d/%d", b.Depth, b.Capacity), Zero: b.Depth == 0},
+	}})
 
-	if r.HavePatterns {
-		lines = append(lines, fmt.Sprintf("Patterns  loaded %d   exclusions %d   errors %d", r.Patterns, r.Exclusions, len(r.PatternProblems)))
-		for _, problem := range r.PatternProblems {
-			lines = append(lines, "  ✗ "+problem)
+	// --- Detection: what the engine holds and has found.
+	measured := e.DetectionLatency.Count > 0
+	sections = append(sections, healthSection{Title: "Detection", Cells: []healthCell{
+		count("processes", e.Processes), count("exited", e.Tombstones), count("forgotten early", e.TombstonesEvicted),
+		count("findings", e.FindingsEmitted), count("excluded", e.FindingsExcluded), count("suppressed", e.FindingsSuppressed),
+		count("active suppressions", e.ActiveSuppressions),
+		duration("latency p50", e.DetectionLatency.P50, measured),
+		duration("latency p99", e.DetectionLatency.P99, measured),
+		duration("latency max", e.DetectionLatency.Max, measured),
+		count("latency samples", e.DetectionLatency.Count),
+	}})
+
+	// --- Search effort and the limits it can run into.
+	sections = append(sections, healthSection{Title: "Search and limits", Cells: []healthCell{
+		count("candidates tried", e.SearchCandidates), count("work deferred", e.SearchWorkDeferred),
+		count("processes waiting", e.DeferredProcesses), bad("full rescans", e.FullRescans),
+		bad("walks truncated", e.DescendantWalksTruncated), bad("sequences truncated", e.SequencesPossiblyTruncated),
+		bad("searches aborted", e.SequenceSearchesAborted),
+		count("threshold counters", e.ThresholdCounters), count("counters evicted", e.ThresholdCountersEvicted),
+		bad("counter cap hits", e.ThresholdCounterCapHits),
+	}})
+
+	// --- Patterns.
+	if r.HavePatterns || len(r.Excluded) > 0 {
+		patterns := healthSection{Title: "Patterns"}
+		if r.HavePatterns {
+			patterns.Cells = []healthCell{count("loaded", r.Patterns), count("exclusions", r.Exclusions), bad("errors", len(r.PatternProblems))}
+			for _, problem := range r.PatternProblems {
+				patterns.Notes = append(patterns.Notes, healthNote{Text: "✗ " + problem, Bad: true})
+			}
 		}
-	}
 
-	if len(r.Excluded) > 0 {
 		rules := make([]string, 0, len(r.Excluded))
-		for rule, count := range r.Excluded {
-			rules = append(rules, fmt.Sprintf("%s %d", rule, count))
+		for rule := range r.Excluded {
+			rules = append(rules, rule)
 		}
 		sort.Strings(rules)
-		lines = append(lines, "Excluded  "+strings.Join(rules, "   "))
+		for _, rule := range rules {
+			patterns.Notes = append(patterns.Notes, healthNote{Label: "excluded", Text: fmt.Sprintf("%s ×%d", rule, r.Excluded[rule])})
+		}
+		sections = append(sections, patterns)
+	}
+
+	return sections
+}
+
+// Widths of the report's columns: a cell is a label and a value, and a
+// note's label lines up with the cells' labels.
+const (
+	healthLabelWidth = 20
+	healthValueWidth = 10
+	healthCellWidth  = healthLabelWidth + healthValueWidth
+	healthIndent     = "  "
+)
+
+// healthColumns is how many cells fit side by side in width columns.
+func healthColumns(width int) int {
+	columns := (width - len(healthIndent)) / healthCellWidth
+	if columns < 1 {
+		return 1
+	}
+	if columns > 4 {
+		return 4
+	}
+	return columns
+}
+
+// layoutHealth renders a report width columns wide. decorate is given each
+// piece of text and what it is, and returns it as the view wants it (with
+// colour, or as it is).
+func layoutHealth(r healthReport, width int, decorate func(text, kind string) string) []string {
+	var lines []string
+
+	if alerts := r.Alerts(); len(alerts) > 0 {
+		lines = append(lines, decorate(alertPrefix+strings.Join(alerts, " · "), "alert"), "")
+	}
+
+	columns := healthColumns(width)
+
+	for i, section := range r.Sections() {
+		if i > 0 {
+			lines = append(lines, "")
+		}
+		lines = append(lines, decorate(strings.ToUpper(section.Title), "title"))
+
+		for _, note := range section.Notes {
+			kind := "note"
+			if note.Bad {
+				kind = "bad"
+			}
+			line := healthIndent + decorate(pad(note.Label, healthLabelWidth), "label") + decorate(note.Text, kind)
+			if note.Label == "" {
+				line = healthIndent + healthIndent + decorate(note.Text, kind)
+			}
+			lines = append(lines, line)
+		}
+
+		for start := 0; start < len(section.Cells); start += columns {
+			var row strings.Builder
+			row.WriteString(healthIndent)
+
+			for _, cell := range section.Cells[start:min(start+columns, len(section.Cells))] {
+				kind := "value"
+				switch {
+				case cell.Bad && !cell.Zero:
+					kind = "bad"
+				case cell.Zero:
+					kind = "zero"
+				}
+				row.WriteString(decorate(pad(cell.Label, healthLabelWidth), "label"))
+				row.WriteString(decorate(pad(cell.Value, healthValueWidth), kind))
+			}
+			lines = append(lines, strings.TrimRight(row.String(), " "))
+		}
 	}
 
 	return lines
+}
+
+// pad extends text with spaces to width columns, always leaving one.
+func pad(text string, width int) string {
+	if n := len([]rune(text)); n < width {
+		return text + strings.Repeat(" ", width-n)
+	}
+	return text + " "
+}
+
+// Lines renders the report as plain text, three values to a row.
+func (r healthReport) Lines() []string {
+	return layoutHealth(r, len(healthIndent)+3*healthCellWidth, func(text, _ string) string { return text })
 }
 
 // LogLine renders the report as one line of key=value pairs, for logs that

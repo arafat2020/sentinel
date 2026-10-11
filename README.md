@@ -9,6 +9,8 @@ Everything is visible in a live terminal TUI with nine tabs — no external serv
 ## Features
 
 - **Process telemetry** — start/exec/exit events, PID/PPID, executable path. On Linux the kernel reports them as they happen (eBPF, or the netlink process connector), so processes that live for a millisecond are seen; elsewhere, and as a fallback, the process table is polled via gopsutil. See [Linux process collection](docs/linux-process-collector.md)
+- **Findings you can work** — a findings list with severity, rule, process and status; filters; a detail view with each role's process, the timeline of events behind the finding and what the rule captured; acknowledge / dismiss, copy as JSON, and "Exclude…" to stop a known-good case being reported again. Findings and their status survive a restart
+- **Pattern YAML editor** — edit any pattern, or the exclusions, as YAML inside the TUI or the desktop app, checked by the same strict loader as at startup; nothing invalid is saved. The patterns file is also watched, so hand edits apply without a restart
 - **Health view** — the active collectors, dropped and partial events, event-bus pressure and every limit the detection engine has hit
 - **Network telemetry** — TCP/UDP connection open/close with remote address and port
 - **DNS telemetry** — per-query domain, record type, resolver IP, attribution to originating process; captured across all active network interfaces simultaneously
@@ -201,6 +203,8 @@ Without the entitlement, file telemetry is silently skipped — all other tabs s
 | `--process-collector` | How process events are collected: `auto` (default), `ebpf`, `proc-connector` or `poll`. `auto` tries them in that order and logs why any was skipped. Linux only; other platforms poll |
 | `--process-exec-grace` | How long after a fork an exec still counts as the process starting (default `50ms`) |
 | `--process-ringbuf-bytes` | Size of the eBPF ring buffer for process events (default 8 MiB) |
+| `--recent-findings` | How many stored findings the Findings view shows again after a restart (default `500`, `0` for none) |
+| `--pprof-addr` | Serve Go profiling data on this address, e.g. `127.0.0.1:6060` (off by default) |
 | `--health-interval` | How often `--headless` logs a `HEALTH` line (default `60s`) |
 | `--reset-password` | Interactively reset the Sentinel password and exit |
 | `--query` | Query stored events and exit (see filters below) |
@@ -219,7 +223,7 @@ Without the entitlement, file telemetry is silently skipped — all other tabs s
 | `2` | Network tab |
 | `3` | DNS tab |
 | `4` | File tab |
-| `5` | Findings tab |
+| `5` | Findings tab (list, detail, triage — see below) |
 | `6` | Patterns tab (YAML behavioral pattern editor) |
 | `7` | Settings tab (retention · SSH kill-switch) |
 | `8` | Resources tab (live process monitor) |
@@ -234,6 +238,53 @@ the Settings form).
 
 On terminals narrower than the tab bar, the bar scrolls sideways to keep the
 active tab visible.
+
+### Findings tab
+
+| Key | Where | Action |
+|-----|-------|--------|
+| `↑` / `↓` | List | Move the selection |
+| `Enter` | List | Open the detail view |
+| `S` / `T` / `R` | List | Step the severity / status / rule filter |
+| `O` | List | Newest first ↔ oldest first |
+| `A` / `D` / `N` | List, detail | Acknowledge / dismiss / mark new |
+| `C` | List, detail | Show the finding as JSON and copy it (OSC 52, where the terminal allows) |
+| `X` | List, detail | Exclude…: build an exclusion from one of the finding's processes |
+| `Esc` | Detail and sub-pages | Back |
+
+The detail view shows the rule, severity, time and status; every role with its
+process (name, PID, user, executable, command line, start time, and any earlier
+program images); the events in time order with their offset from the first; and
+the events the rule's sequence captured. It is a page of its own, so it fits an
+80×25 terminal.
+
+**Exclude…** is prefilled from the process in one role: executable and user as
+exact matches, command line and name on offer. Tick what to keep, loosen what
+is too specific (executable → everything in its directory; command line →
+"starts with" or "contains"), choose *this rule only* or *all rules*, and give
+a description (required). The exact YAML is shown before anything is written.
+Saving applies it at once and marks the finding dismissed.
+
+### Patterns tab: YAML
+
+| Key | Action |
+|-----|--------|
+| `Y` | Edit the selected pattern as YAML, exactly as it is saved |
+| `T` | New pattern from a commented template |
+| `X` | Edit the top-level exclusions as YAML |
+| `Ctrl+S` | In the editor: check and save |
+| `Esc` | In the editor: close (asks once if there are unsaved changes) |
+
+On save the text goes through the same strict loader as at startup. If
+anything is wrong, every problem is listed under the editor with its path and,
+where the YAML parser knows it, its line (`line 6: processes[1].mach: unknown
+key …`), the cursor moves to the first, and **nothing is written**. If Sentinel
+is not allowed to write the patterns file, the editor says so when it opens.
+
+`configs/patterns.yaml` is watched. An edit made outside Sentinel is applied
+within a moment; a pattern with a mistake is left out and listed in the
+Patterns tab, the footer and Health, while the rest stay active. A file that
+is not YAML at all leaves the previous patterns in force.
 
 ### Settings tab shortcuts
 

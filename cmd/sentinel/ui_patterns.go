@@ -374,11 +374,11 @@ func (pp *PatternsPage) rebuildForm() {
 	// Parts of the pattern this editor does not understand are kept as they
 	// are on save; say so rather than let them look absent.
 	if pp.draft.UsesAdvancedFields() {
-		pp.form.AddTextView("Advanced", "[yellow]⚙ "+advancedFieldsNote+"[-]", 40, 1, true, false)
-	}
-	if pp.store != nil {
-		// The form shows only part of a pattern; the YAML is all of it.
-		pp.form.AddButton("Edit YAML", pp.editSelectedYAML)
+		note := advancedFieldsNote
+		if pp.store != nil {
+			note += " (YAML button, or Y in the list)"
+		}
+		pp.form.AddTextView("Advanced", "[yellow]⚙ "+note+"[-]", 0, 1, true, false)
 	}
 
 	// Processes summary + edit button
@@ -399,6 +399,11 @@ func (pp *PatternsPage) rebuildForm() {
 	pp.form.AddButton("Cancel", func() {
 		pp.selectPattern(pp.editingIdx)
 	})
+	if pp.store != nil {
+		// The form shows only part of a pattern; the YAML is all of it.
+		// Last, and short, so the buttons before it keep their places.
+		pp.form.AddButton("YAML", pp.editSelectedYAML)
+	}
 
 	// Esc in the form goes back to the list
 	pp.form.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {

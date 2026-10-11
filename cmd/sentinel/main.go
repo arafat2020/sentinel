@@ -300,12 +300,19 @@ func main() {
 	)
 
 	bus.Start(ctx)
+
+	// Lines for the Process tab wait for the event loop, which has not
+	// started yet, so they are sent from a goroutine. Sending them from
+	// here would stop Sentinel before it ever drew anything.
+	startup := collection.Describe()
 	if err := patternFile.Watch(ctx, watchDebounce); err != nil {
-		ui.AddProcess(fmt.Sprintf("patterns file is not being watched for changes: %v", err))
+		startup = append(startup, fmt.Sprintf("patterns file is not being watched for changes: %v", err))
 	}
-	for _, line := range collection.Describe() {
-		ui.AddProcess(line)
-	}
+	go func() {
+		for _, line := range startup {
+			ui.AddProcess(line)
+		}
+	}()
 	collection.Start(ctx, bus, lifecycleDetector, coordinator, corrEngine, ui.AddProcess)
 	go netMonitor.Run(ctx)
 	go resourceMonitor.Run(ctx)

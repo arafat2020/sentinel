@@ -321,14 +321,15 @@ func (s *ebpfSource) translate(ctx context.Context, r *record) (core.Event, bool
 		s.closes.Add(1)
 
 	case kindListen:
+		// A listening socket has no peer; its remote address is the
+		// unspecified one ("0.0.0.0" or "::") and its remote port 0, which
+		// is how the poll collector reports it.
 		connection.State = stateListen
-		connection.RemoteAddress, connection.RemotePort = "", 0
 		s.listens.Add(1)
 
 	case kindUnlisten:
 		event.Type = core.EventNetworkClose
 		connection.State = stateListen
-		connection.RemoteAddress, connection.RemotePort = "", 0
 
 	case kindUDP:
 		connection.Protocol = "udp"

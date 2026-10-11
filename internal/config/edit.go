@@ -314,7 +314,7 @@ func ExclusionYAML(exclusion correlation.Exclusion) (string, error) {
 func RoleExclusionYAML(exclusion correlation.RoleExclusion) (string, error) {
 	out := struct {
 		Exclude []RoleExclusionDef `yaml:"exclude"`
-	}{Exclude: []RoleExclusionDef{{Role: exclusion.Role, Match: encodeMatchBlock(exclusion.Match)}}}
+	}{Exclude: []RoleExclusionDef{{Role: exclusion.Role, Match: encodeMatchBlock(exclusion.Match), Description: exclusion.Description}}}
 
 	data, err := yaml.Marshal(&out)
 	return string(data), err

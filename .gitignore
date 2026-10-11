@@ -3,7 +3,6 @@
 Thumbs.db
 
 # Editor/IDE files
-.vscode/
 .idea/
 *.swp
 *.swo
@@ -17,6 +16,7 @@ coverage.out
 *.exe
 *.dll
 *.so
+temp_auto_push.bat
 *.dylib
 *.test
 *.out
@@ -35,3 +35,5 @@ entitlements.plist
 sentinel.db
 sentinel.db-shm
 sentinel.db-wal
+.gitignore
+branch_structure.json

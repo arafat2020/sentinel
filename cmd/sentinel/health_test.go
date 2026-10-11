@@ -79,10 +79,12 @@ func TestHealthReportShowsEveryCounter(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"Process collector  proc-connector  (requested: auto)",
+		"COLLECTORS", "PROCESS EVENTS", "EVENT BUS", "DETECTION", "SEARCH AND LIMITS", "PATTERNS",
+		"Process             proc-connector (requested: auto)",
 		"skipped ebpf: missing BTF: nope",
-		"Excluded  rule-a 401   rule-b 402",
-		"network: poll every 2s",
+		"excluded            rule-a ×401",
+		"excluded            rule-b ×402",
+		"Network             poll every 2s",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("text lacks %q:\n%s", want, text)
@@ -101,16 +103,16 @@ func TestHealthReportWhenPolling(t *testing.T) {
 	report.Failure = "ring buffer closed; falling back to poll"
 
 	text := strings.Join(report.Lines(), "\n")
-	if !strings.Contains(text, "Process collector  poll  (requested: auto)  snapshot every 2s") {
+	if !strings.Contains(text, "Process             poll (requested: auto), snapshot every 2s") {
 		t.Errorf("text does not describe polling:\n%s", text)
 	}
 	if !strings.Contains(text, "falling back to poll") {
 		t.Errorf("text does not say why polling is in use:\n%s", text)
 	}
-	if strings.Contains(text, "Kernel ") || strings.Contains(report.LogLine(), "kernel_drops") {
+	if strings.Contains(text, "PROCESS EVENTS") || strings.Contains(text, "kernel drops") || strings.Contains(report.LogLine(), "kernel_drops") {
 		t.Errorf("collector counters shown for polling:\n%s\n%s", text, report.LogLine())
 	}
-	if !strings.Contains(text, "Bus ") || !strings.Contains(text, "Engine ") {
+	if !strings.Contains(text, "EVENT BUS") || !strings.Contains(text, "DETECTION") {
 		t.Errorf("bus and engine are missing:\n%s", text)
 	}
 }
@@ -139,7 +141,7 @@ func TestHealthReadsCollectionBusAndEngine(t *testing.T) {
 	if report.Engine.Processes != 1 {
 		t.Errorf("engine = %+v", report.Engine)
 	}
-	if !strings.Contains(source.Text(), "published 1") {
+	if !strings.Contains(source.Text(), "published           1 ") {
 		t.Errorf("text = %s", source.Text())
 	}
 }
@@ -202,5 +204,69 @@ func TestPasswordGateApplies(t *testing.T) {
 		if got := passwordGateApplies(c.headless, c.reset, c.onATerm); got != c.want {
 			t.Errorf("%s: gate applies = %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+// The report is a set of titled sections whose values line up in columns,
+// as many across as the width allows.
+func TestHealthLayoutAlignsAndReflows(t *testing.T) {
+	report := sampleHealth()
+	plain := func(text, _ string) string { return text }
+
+	if healthColumns(80) != 2 || healthColumns(100) != 3 || healthColumns(200) != 4 || healthColumns(10) != 1 {
+		t.Errorf("columns at 80/100/200/10 = %d/%d/%d/%d", healthColumns(80), healthColumns(100), healthColumns(200), healthColumns(10))
+	}
+
+	for _, width := range []int{40, 80, 120} {
+		lines := layoutHealth(report, width, plain)
+		columns := healthColumns(width)
+
+		for _, line := range lines {
+			// A row of values never runs past the width it was laid out
+			// for. (Notes are sentences and may; the view scrolls.)
+			if strings.HasPrefix(line, healthIndent+"published") || strings.HasPrefix(line, healthIndent+"starts") {
+				if n := len([]rune(line)); n > width && columns > 1 {
+					t.Errorf("width %d: a value row is %d wide: %q", width, n, line)
+				}
+			}
+		}
+
+		// The first value of every row starts in the same column.
+		at := len(healthIndent) + healthLabelWidth
+		checked := 0
+		for _, line := range lines {
+			if !strings.HasPrefix(line, healthIndent+"published") && !strings.HasPrefix(line, healthIndent+"processes ") &&
+				!strings.HasPrefix(line, healthIndent+"candidates tried") {
+				continue
+			}
+			checked++
+			cells := []rune(line)
+			if cells[at-1] != ' ' || cells[at] == ' ' {
+				t.Errorf("width %d: the value does not start at column %d: %q", width, at, line)
+			}
+			// And so does the second, where there is one.
+			if next := at + healthValueWidth + healthLabelWidth; columns > 1 && len(cells) > next && (cells[next-1] != ' ' || cells[next] == ' ') {
+				t.Errorf("width %d: the second value does not start at column %d: %q", width, next, line)
+			}
+		}
+		if checked < 3 {
+			t.Errorf("width %d: only %d rows were checked", width, checked)
+		}
+	}
+
+	// Each section has its title on a line of its own, with a blank line
+	// before it.
+	lines := layoutHealth(report, 80, plain)
+	for i, line := range lines {
+		if line == "EVENT BUS" && (i == 0 || lines[i-1] != "") {
+			t.Errorf("no blank line before a section title: %q", lines[max(0, i-1)])
+		}
+	}
+
+	// Latency that has never been measured is not shown as zero seconds.
+	unmeasured := healthReport{Collector: procevents.Stats{Backend: procevents.BackendPoll}}
+	text := strings.Join(layoutHealth(unmeasured, 80, plain), "\n")
+	if strings.Contains(text, "0s") || !strings.Contains(text, "latency p50         —") {
+		t.Errorf("unmeasured latency:\n%s", text)
 	}
 }

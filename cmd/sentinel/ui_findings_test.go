@@ -481,12 +481,12 @@ func TestPatternYAMLEditorInTheTUI(t *testing.T) {
 // the Patterns tab, the count in the footer, and both in Health.
 func TestExternalPatternChangeReachesTheTUI(t *testing.T) {
 	h := newFullHarness(t)
-	h.ui.SetHealth((&health{
+	h.ui.SetHealthReport((&health{
 		collection: &processCollection{requested: "poll"},
 		bus:        newTestBus(),
 		engine:     h.patterns.engine,
 		patterns:   h.patterns,
-	}).Text)
+	}).Report)
 
 	h.key(tcell.KeyRune, '6')
 	h.wantOnScreen("pattern errors: 0")
@@ -509,8 +509,15 @@ func TestExternalPatternChangeReachesTheTUI(t *testing.T) {
 	h.keys(tcell.KeyRight, 3)
 	h.wantTab(tabHealth)
 	h.wantOnScreen("ATTENTION pattern errors 1")
-	h.wantOnScreen("Patterns  loaded 1   exclusions 0   errors 1")
-	h.wantOnScreen("Latency   event to finding: p50")
+	h.wantOnScreen("COLLECTORS")
+	h.wantOnScreen("DETECTION")
+	h.wantOnScreen("latency p50")
+
+	// The report is longer than 25 rows; the rest scrolls.
+	h.keys(tcell.KeyPgDn, 2)
+	h.wantOnScreen("PATTERNS")
+	h.wantOnScreen("errors              1")
+	h.wantOnScreen(`✗ pattern[1] "typo": processes[0].mach: unknown key`)
 
 	// Fixed again.
 	if err := os.WriteFile(h.path, []byte(uiTestPatterns), 0o644); err != nil {
@@ -544,19 +551,30 @@ func TestHealthAlerts(t *testing.T) {
 		t.Errorf("the alerts are not the first line: %q", lines[0])
 	}
 	text := strings.Join(lines, "\n")
-	if !strings.Contains(text, "p50 315µs   p99 316µs") || !strings.Contains(text, `  ✗ pattern[1] "typo": bad`) {
+	if !strings.Contains(text, "latency p50         315µs") || !strings.Contains(text, "latency p99         316µs") || !strings.Contains(text, `    ✗ pattern[1] "typo": bad`) {
 		t.Errorf("report:\n%s", text)
 	}
 	if !strings.Contains(bad.LogLine(), "pattern_errors=1") || !strings.Contains(bad.LogLine(), "detection_latency_p99_us=316") {
 		t.Errorf("log line: %s", bad.LogLine())
 	}
 
-	coloured := colourHealth(text)
-	if !strings.HasPrefix(coloured, "[red::b]"+alertPrefix) || !strings.Contains(coloured, "[red::b]  ✗ pattern") {
-		t.Errorf("coloured report:\n%s", coloured)
+	// In colour: the alert line, the pattern error and every bad counter
+	// that is not zero are red; titles stand out; a zero recedes.
+	coloured := strings.Join(layoutHealth(bad, 80, colourHealth), "\n")
+	for _, want := range []string{
+		"[red::b]" + alertPrefix + "kernel drops 104",
+		"[red::b]✗ pattern",
+		"[gray]kernel drops        [-][red::b]104",
+		"[yellow::b]EVENT BUS[-::-]",
+		"[gray]published           [-][white::b]201",
+	} {
+		if !strings.Contains(coloured, want) {
+			t.Errorf("coloured report lacks %q:\n%s", want, coloured)
+		}
 	}
-	if strings.Count(coloured, "[red::b]") != 2 {
-		t.Errorf("%d lines are red, want the alert line and the one pattern error", strings.Count(coloured, "[red::b]"))
+	calm := strings.Join(layoutHealth(healthReport{}, 80, colourHealth), "\n")
+	if strings.Contains(calm, "[red") || !strings.Contains(calm, "[gray]published           [-][gray]0") {
+		t.Errorf("a clean report in colour:\n%s", calm)
 	}
 }
 

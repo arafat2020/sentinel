@@ -1368,6 +1368,40 @@ func (e *Engine) SetPatterns(patterns []BehaviorPattern) {
 // load compiles patterns for this engine and rebuilds what is derived from
 // them. Counters belong to the requirements of the previous patterns and
 // start again: a threshold needs its events to arrive after it was loaded.
+// Reload replaces the patterns and the exclusions together, as when the
+// patterns file has been edited while Sentinel runs.
+//
+// Unlike SetPatterns it keeps the record of what has already been reported.
+// Everything is evaluated again under the new rules, so a new or changed
+// pattern is applied to what is already known, but an incident that was
+// reported before the reload is not reported a second time because of it.
+// An invalid exclusion is left out; the first such error is returned.
+func (e *Engine) Reload(patterns []BehaviorPattern, exclusions []Exclusion) error {
+	var firstErr error
+
+	compiled := make([]compiledExclusion, 0, len(exclusions))
+	for i, exclusion := range exclusions {
+		if err := exclusion.Validate(); err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("exclusions[%d]: %w", i, err)
+			}
+			continue
+		}
+
+		matches, _ := compileProcessMatch(exclusion.Match, "match")
+		compiled = append(compiled, compiledExclusion{Exclusion: exclusion, matches: matches})
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.load(patterns)
+	e.exclusions = compiled
+	e.rescan = true
+
+	return firstErr
+}
+
 func (e *Engine) load(patterns []BehaviorPattern) {
 	e.patterns = make([]*compiledPattern, len(patterns))
 	e.deep = false

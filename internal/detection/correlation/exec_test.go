@@ -351,3 +351,59 @@ func TestTombstoneCapDoesNotApplyBelowIt(t *testing.T) {
 		t.Fatalf("metrics = %+v", metrics)
 	}
 }
+
+// Reloading the patterns file must not report again what was already
+// reported, must apply a new pattern to what is already known, and must
+// apply a new exclusion from then on.
+func TestReloadKeepsWhatWasReported(t *testing.T) {
+	curl := BehaviorPattern{Name: "curl-connects", Processes: []ProcessPattern{named("p", "curl", core.EventNetworkConnect)}}
+	wget := BehaviorPattern{Name: "wget-connects", Processes: []ProcessPattern{named("p", "wget", core.EventNetworkConnect)}}
+
+	h := newHarness(testWindow)
+	h.SetPatterns([]BehaviorPattern{curl})
+
+	a, b := proc(10, 1, "curl", at(0)), proc(20, 1, "wget", at(0))
+	h.start(a, at(0))
+	h.connect(a, at(time.Second))
+	h.start(b, at(0))
+	h.connect(b, at(time.Second))
+	if got := findingKeys(h.detect(at(time.Second))); got != "curl-connects:10" {
+		t.Fatalf("before the reload: %q", got)
+	}
+
+	// The same pattern again, and a new one.
+	if err := h.Reload([]BehaviorPattern{curl, wget}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := findingKeys(h.detect(at(2 * time.Second))); got != "wget-connects:20" {
+		t.Fatalf("after the reload: %q, want only what the new pattern finds", got)
+	}
+
+	// SetPatterns, by contrast, starts afresh.
+	h.SetPatterns([]BehaviorPattern{curl, wget})
+	if got := findingKeys(h.detect(at(3 * time.Second))); got != "curl-connects:10 wget-connects:20" {
+		t.Fatalf("after SetPatterns: %q", got)
+	}
+
+	// An exclusion added by a reload applies to what happens next: once
+	// the window has passed the incident would be reported again, and is
+	// not.
+	exclusion := Exclusion{Rules: []string{"curl-connects"}, Description: "known", Match: block(fieldIs("name", Predicate{Eq: sp("curl")}))}
+	if err := h.Reload([]BehaviorPattern{curl, wget}, []Exclusion{exclusion}); err != nil {
+		t.Fatal(err)
+	}
+	later := at(3*time.Second + 2*testWindow)
+	h.connect(a, later)
+	h.connect(b, later)
+	if got := findingKeys(h.detect(later)); got != "wget-connects:20" {
+		t.Fatalf("with curl excluded: %q", got)
+	}
+	if h.ExcludedFindings()["curl-connects"] != 1 {
+		t.Errorf("excluded = %v", h.ExcludedFindings())
+	}
+
+	// A bad exclusion is reported and left out; the rest still load.
+	if err := h.Reload([]BehaviorPattern{curl}, []Exclusion{{Rules: []string{"*"}}, exclusion}); err == nil {
+		t.Error("an exclusion that excludes nothing in particular was accepted")
+	}
+}

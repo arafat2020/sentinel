@@ -321,9 +321,9 @@ func ShippedPatterns() []BehaviorPattern {
 		// this was SuspiciousChildProcessRule in internal/detection/process.
 		BehaviorPattern{
 			Name:        "suspicious-child-process",
-			Severity:    core.SeverityHigh,
-			Title:       "Suspicious child process",
-			Description: "A node process spawned a Python interpreter.",
+			Severity:    core.SeverityMedium,
+			Title:       "Node process spawned Python",
+			Description: "A Node.js process spawned a Python interpreter. This can be expected for some tooling; review the process details before treating it as malicious.",
 
 			Processes: []ProcessPattern{
 				{
@@ -347,6 +347,83 @@ func ShippedPatterns() []BehaviorPattern {
 
 			Relationships: []RelationshipPattern{
 				{Type: RelationshipSpawned, Parent: "parent", Child: "child"},
+			},
+		},
+		BehaviorPattern{
+			Name:        "webshell-outbound-any-depth",
+			Severity:    core.SeverityHigh,
+			Title:       "Shell below a web server made an unusual outbound connection",
+			Description: "A shell up to four generations below a web server connected on a non-standard remote port.",
+			Processes: []ProcessPattern{
+				{
+					ID: "web",
+					Match: &MatchBlock{Fields: []FieldPredicate{{
+						Field:     "name",
+						Predicate: Predicate{In: []string{"nginx", "apache2", "httpd", "caddy"}, NoCase: true},
+					}}},
+				},
+				{
+					ID: "shell",
+					Match: &MatchBlock{Fields: []FieldPredicate{{
+						Field:     "name",
+						Predicate: Predicate{Regex: stringPtr(`^(ba|da|z|k)?sh$`)},
+					}}},
+					Events: []EventPattern{{
+						Type: core.EventNetworkConnect,
+						Where: &MatchBlock{Fields: []FieldPredicate{{
+							Field: "remote_port",
+							Predicate: Predicate{
+								Gt:  stringPtr("0"),
+								Not: &Predicate{In: []string{"80", "443", "53"}},
+							},
+						}}},
+					}},
+				},
+			},
+			Relationships: []RelationshipPattern{{
+				Type: RelationshipDescendant, Parent: "web", Child: "shell", MaxDepth: 4,
+			}},
+		},
+		BehaviorPattern{
+			Name:        "network-file-drop-execute",
+			Severity:    core.SeverityHigh,
+			Title:       "Downloaded file was executed",
+			Description: "A process opened a connection with known remote-port details, created a file in a writable temporary directory, and a related process executed that exact file within one minute.",
+			Processes: []ProcessPattern{
+				{ID: "launcher"},
+				{ID: "downloader"},
+				{ID: "payload"},
+			},
+			Relationships: []RelationshipPattern{
+				{Type: RelationshipSpawned, Parent: "launcher", Child: "downloader"},
+				{Type: RelationshipSpawned, Parent: "launcher", Child: "payload"},
+			},
+			Sequence: &SequencePattern{
+				Within: time.Minute,
+				Steps: []SequenceStep{
+					{
+						Role: "downloader",
+						Type: core.EventNetworkConnect,
+						Where: &MatchBlock{Fields: []FieldPredicate{{
+							Field:     "remote_port",
+							Predicate: Predicate{Gt: stringPtr("0")},
+						}}},
+					},
+					{
+						Role: "downloader",
+						Type: core.EventFileCreate,
+						Where: &MatchBlock{AnyOf: []MatchBlock{
+							{Fields: []FieldPredicate{{Field: "path", Predicate: Predicate{Glob: stringPtr("/tmp/**")}}}},
+							{Fields: []FieldPredicate{{Field: "path", Predicate: Predicate{Glob: stringPtr("/dev/shm/**")}}}},
+						}},
+						Capture: "dropped",
+					},
+					{
+						Role:  "payload",
+						Type:  core.EventProcessStart,
+						Where: &MatchBlock{Fields: []FieldPredicate{{Field: "exe", Predicate: Predicate{Eq: stringPtr("$dropped.path")}}}},
+					},
+				},
 			},
 		},
 	)

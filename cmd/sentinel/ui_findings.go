@@ -291,7 +291,7 @@ func (fp *FindingsPage) renderDetail() {
 		switch {
 		case i == 0:
 			escaped = "[" + severityColor(item.Finding.Severity) + "::b]" + escaped + "[-::-]"
-		case line == "ROLES" || strings.HasPrefix(line, "TIMELINE") || line == "CAPTURES":
+		case line == "ROLES" || strings.HasPrefix(line, "TIMELINE") || strings.HasPrefix(line, "CAPTURES"):
 			escaped = "[yellow]" + escaped + "[-]"
 		}
 		lines[i] = escaped

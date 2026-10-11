@@ -370,6 +370,22 @@ type capture struct {
 	Event core.Event
 }
 
+// findingCaptures returns the events a finding's sequence captured, and
+// whether they had to be worked out. A finding records its captures when it
+// is made. One stored before that was so has none, and they are derived from
+// the rule as it is loaded now, which may no longer be the rule that fired.
+func findingCaptures(f core.Finding, patterns []correlation.BehaviorPattern) (captures []capture, derived bool) {
+	if len(f.Evidence.Captures) > 0 {
+		for _, stored := range f.Evidence.Captures {
+			captures = append(captures, capture{Name: stored.Name, Event: stored.Event})
+		}
+		return captures, false
+	}
+
+	captures = capturesOf(f, patterns)
+	return captures, len(captures) > 0
+}
+
 // capturesOf works out which of a finding's events were captured. The
 // evidence lists the events of the rule's sequence first, one per step in
 // step order, so the rule as currently loaded says which of them had names.
@@ -459,9 +475,13 @@ func detailLines(item findingItem, patterns []correlation.BehaviorPattern) []str
 		}
 	}
 
-	if captures := capturesOf(f, patterns); len(captures) > 0 {
+	if captures, derived := findingCaptures(f, patterns); len(captures) > 0 {
 		add("")
-		add("CAPTURES")
+		if derived {
+			add("CAPTURES (derived from the rule as it is loaded now)")
+		} else {
+			add("CAPTURES")
+		}
 		for _, c := range captures {
 			add("  $%s = %s  %s", c.Name, c.Event.Type, eventSummary(c.Event))
 		}

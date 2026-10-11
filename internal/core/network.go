@@ -19,6 +19,42 @@ type NetworkConnection struct {
 	State string `json:"state,omitempty"`
 
 	Process *Process `json:"process,omitempty"`
+
+	// Direction is "outbound" for a connection this host's process opened
+	// and "inbound" for one it accepted or is listening for. Empty when
+	// the collector cannot tell.
+	Direction string `json:"direction,omitempty"`
+	// Result is how an attempt to connect ended: "ok", "refused",
+	// "timeout", "unreachable" or "other". Empty when the collector cannot
+	// tell.
+	Result string `json:"result,omitempty"`
+	// Transfer is what a closed connection carried and how long it lasted.
+	// It is set on NETWORK_CLOSE events from a collector that measures it,
+	// and nil otherwise.
+	Transfer *NetworkTransfer `json:"transfer,omitempty"`
+}
+
+// The values of NetworkConnection.Direction.
+const (
+	DirectionOutbound = "outbound"
+	DirectionInbound  = "inbound"
+)
+
+// The values of NetworkConnection.Result.
+const (
+	ResultOK          = "ok"
+	ResultRefused     = "refused"
+	ResultTimeout     = "timeout"
+	ResultUnreachable = "unreachable"
+	ResultOther       = "other"
+)
+
+// NetworkTransfer is the accounting of one closed connection.
+type NetworkTransfer struct {
+	BytesSent     uint64 `json:"bytes_sent"`
+	BytesReceived uint64 `json:"bytes_received"`
+	// DurationMs is how long the connection was open, in milliseconds.
+	DurationMs int64 `json:"duration_ms"`
 }
 
 type NetworkConnectionIdentity struct {

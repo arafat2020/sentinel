@@ -24,6 +24,29 @@ func sampleFinding(n int) core.Finding {
 	}
 }
 
+// Captures are stored with the finding and read back; a row stored before
+// they were has none, and loads all the same.
+func TestCapturesAreStoredWithTheFinding(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "sentinel.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	with := sampleFinding(1)
+	with.Evidence.Captures = []core.Capture{{Name: "dropped", Event: with.Evidence.Events[1]}}
+	s.SaveFinding("line", with)
+	s.SaveFinding("line", sampleFinding(2))
+
+	found := awaitFindings(t, s, func(f []StoredFinding) bool { return len(f) == 2 })
+	if !reflect.DeepEqual(found[0].Finding.Evidence.Captures, with.Evidence.Captures) {
+		t.Errorf("captures read back as %+v", found[0].Finding.Evidence.Captures)
+	}
+	if found[1].Finding.Evidence.Captures != nil {
+		t.Errorf("a finding without captures has %+v", found[1].Finding.Evidence.Captures)
+	}
+}
+
 // awaitFindings polls until the asynchronous writer has caught up.
 func awaitFindings(t *testing.T, s *Store, done func([]StoredFinding) bool) []StoredFinding {
 	t.Helper()

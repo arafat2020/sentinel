@@ -31,7 +31,21 @@ func buildConnection(
 	connection gopsnet.ConnectionStat,
 	process core.Process,
 ) core.NetworkConnection {
+	// A snapshot of the socket table says little about how a socket came to
+	// be: only that a listening socket is waiting for inbound connections,
+	// and that an established one was opened successfully. Which side
+	// opened it, and what it carried, are left unset.
+	direction, result := "", ""
+	switch connection.Status {
+	case "LISTEN":
+		direction = core.DirectionInbound
+	case "ESTABLISHED":
+		result = core.ResultOK
+	}
+
 	return core.NetworkConnection{
+		Direction:     direction,
+		Result:        result,
 		Timestamp:     time.Now(),
 		PID:           connection.Pid,
 		PPID:          process.PPID,

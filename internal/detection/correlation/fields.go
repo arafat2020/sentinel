@@ -68,6 +68,38 @@ var networkFields = map[string]field[core.Event]{
 		}
 		return e.Network.State
 	}},
+	// The fields below are filled by collectors that can tell. Where one
+	// cannot, the value is missing, with the usual meaning of missing.
+	"direction": {kind: kindString, text: func(e *core.Event) string {
+		if e.Network == nil {
+			return ""
+		}
+		return e.Network.Direction
+	}},
+	"result": {kind: kindString, text: func(e *core.Event) string {
+		if e.Network == nil {
+			return ""
+		}
+		return e.Network.Result
+	}},
+	"bytes_sent": {kind: kindNumber, number: func(e *core.Event) (int64, bool) {
+		if e.Network == nil || e.Network.Transfer == nil {
+			return 0, false
+		}
+		return int64(e.Network.Transfer.BytesSent), true
+	}},
+	"bytes_received": {kind: kindNumber, number: func(e *core.Event) (int64, bool) {
+		if e.Network == nil || e.Network.Transfer == nil {
+			return 0, false
+		}
+		return int64(e.Network.Transfer.BytesReceived), true
+	}},
+	"duration_ms": {kind: kindNumber, number: func(e *core.Event) (int64, bool) {
+		if e.Network == nil || e.Network.Transfer == nil {
+			return 0, false
+		}
+		return e.Network.Transfer.DurationMs, true
+	}},
 }
 
 var dnsFields = map[string]field[core.Event]{

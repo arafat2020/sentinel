@@ -58,6 +58,13 @@ func (s *source) Backend() Backend { return s.name }
 
 func (s *source) Close() error { return s.backend.close() }
 
+func (s *source) Lookup(pid int32) (core.Process, bool) {
+	if tracker := s.tracker.Load(); tracker != nil {
+		return tracker.Lookup(pid)
+	}
+	return core.Process{}, false
+}
+
 func (s *source) Stats() Stats {
 	stats := Stats{Backend: s.name}
 

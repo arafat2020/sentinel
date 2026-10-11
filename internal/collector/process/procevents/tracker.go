@@ -3,6 +3,7 @@ package procevents
 import (
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -110,6 +111,9 @@ type Tracker struct {
 	maxTracked int
 	emit       func(core.Event)
 
+	// lookups guards procs against Lookup, which other goroutines call.
+	// The goroutine that drives the tracker is the only writer.
+	lookups sync.RWMutex
 	procs   map[int32]*tracked
 	pending []pendingStart
 	// clock is the latest time the tracker has been told about.
@@ -151,6 +155,9 @@ func NewTracker(grace time.Duration, maxTracked int, emit func(core.Event)) *Tra
 // them; they are known so that their children inherit their image and their
 // exits are reported.
 func (t *Tracker) Seed(processes []core.Process) {
+	t.lookups.Lock()
+	defer t.lookups.Unlock()
+
 	for _, process := range processes {
 		if _, known := t.procs[process.PID]; known {
 			continue
@@ -164,11 +171,28 @@ func (t *Tracker) Seed(processes []core.Process) {
 	t.counters.tracked.Store(int64(len(t.procs)))
 }
 
+// Lookup returns what the tracker knows about the process holding pid. It is
+// safe to call from any goroutine. ok is false for a process the tracker is
+// not following, and for one known only in part.
+func (t *Tracker) Lookup(pid int32) (process core.Process, ok bool) {
+	t.lookups.RLock()
+	defer t.lookups.RUnlock()
+
+	found := t.procs[pid]
+	if found == nil || found.partial {
+		return core.Process{}, false
+	}
+	return found.process, true
+}
+
 // handle processes one kernel event.
 func (t *Tracker) handle(event raw) {
+	t.lookups.Lock()
+	defer t.lookups.Unlock()
+
 	// Anything whose grace period ended before this event happened is
 	// settled first, whatever is about to be learned.
-	t.Advance(event.at)
+	t.advance(event.at)
 
 	switch event.kind {
 	case rawFork:
@@ -192,6 +216,14 @@ func (t *Tracker) handle(event raw) {
 // clock when no events are arriving, so a start is never held longer than the
 // grace period plus the time the reader was idle.
 func (t *Tracker) Advance(now time.Time) {
+	t.lookups.Lock()
+	defer t.lookups.Unlock()
+
+	t.advance(now)
+}
+
+// advance is Advance for a caller that holds the lock.
+func (t *Tracker) advance(now time.Time) {
 	if now.After(t.clock) {
 		t.clock = now
 	}
@@ -417,6 +449,9 @@ func (t *Tracker) send(eventType core.EventType, process *tracked, at time.Time,
 // Anything first seen within reconcileMargin of the listing is left alone,
 // because its events may not have been read yet.
 func (t *Tracker) Reconcile(running []core.Process, takenAt time.Time) {
+	t.lookups.Lock()
+	defer t.lookups.Unlock()
+
 	settledBefore := takenAt.Add(-reconcileMargin)
 
 	live := make(map[int32]core.Process, len(running))

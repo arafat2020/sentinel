@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arafat2020/sentinel/internal/collector/network/netevents"
 	"github.com/arafat2020/sentinel/internal/collector/process/procevents"
 	"github.com/arafat2020/sentinel/internal/detection/correlation"
 	"github.com/arafat2020/sentinel/internal/eventbus"
@@ -23,8 +24,10 @@ const healthLogInterval = 60 * time.Second
 // the same report.
 type health struct {
 	collection *processCollection
-	bus        *eventbus.Bus
-	engine     *correlation.Engine
+	// network, when set, adds the network collector.
+	network *networkCollection
+	bus     *eventbus.Bus
+	engine  *correlation.Engine
 	// patterns, when set, adds the state of the patterns file.
 	patterns *patternStore
 }
@@ -46,6 +49,18 @@ type healthReport struct {
 	// HavePatterns is false when the report was made without a patterns
 	// file to describe.
 	HavePatterns bool
+
+	// Network is the network collector's counters, with what was asked
+	// for and why anything else was passed over. HaveNetwork is false when
+	// the report was made without one.
+	Network          netevents.Stats
+	NetworkRequested netevents.Backend
+	NetworkSkipped   []netevents.Skip
+	NetworkFailure   string
+	HaveNetwork      bool
+	// OrderTolerance is the order_tolerance given to sequences that do not
+	// set their own.
+	OrderTolerance time.Duration
 }
 
 // Alerts names the counters that are not zero and mean something was lost
@@ -59,6 +74,8 @@ func (r healthReport) Alerts() []string {
 	}
 
 	add(r.Collector.KernelDrops, "kernel drops")
+	add(r.Network.KernelDrops, "network kernel drops")
+	add(r.Network.Unowned, "connections closed with no known owner")
 	add(r.Collector.TrackedCapHits, "tracked-process cap hits")
 	add(r.Bus.Dropped, "bus drops")
 	add(r.Engine.SequencesPossiblyTruncated, "sequences possibly truncated")
@@ -88,6 +105,19 @@ func (h *health) Report() healthReport {
 		Bus:       h.bus.Stats(),
 		Engine:    h.engine.Metrics(),
 		Excluded:  h.engine.ExcludedFindings(),
+	}
+
+	report.OrderTolerance = h.engine.DefaultOrderToleranceInUse()
+
+	if h.network != nil {
+		h.network.mu.Lock()
+		report.NetworkFailure = h.network.failure
+		h.network.mu.Unlock()
+
+		report.HaveNetwork = true
+		report.Network = h.network.Stats()
+		report.NetworkRequested = h.network.requested
+		report.NetworkSkipped = h.network.skipped
 	}
 
 	if h.patterns != nil {
@@ -177,7 +207,24 @@ func (r healthReport) Sections() []healthSection {
 		collectors.Notes = append(collectors.Notes, healthNote{Label: " ", Text: r.Failure, Bad: true})
 	}
 	for _, other := range otherCollectors() {
-		collectors.Notes = append(collectors.Notes, healthNote{Label: other[0], Text: other[1]})
+		// The network collector describes itself when there is one.
+		if other[0] != "Network" || !r.HaveNetwork {
+			collectors.Notes = append(collectors.Notes, healthNote{Label: other[0], Text: other[1]})
+			continue
+		}
+
+		n := r.Network
+		text := fmt.Sprintf("%s (requested: %s)", n.Backend, r.NetworkRequested)
+		if n.Backend == netevents.BackendPoll {
+			text += fmt.Sprintf(", snapshot every %s", networkPollInterval)
+		}
+		collectors.Notes = append(collectors.Notes, healthNote{Label: "Network", Text: text})
+		for _, skip := range r.NetworkSkipped {
+			collectors.Notes = append(collectors.Notes, healthNote{Label: " ", Text: "skipped " + skip.String()})
+		}
+		if r.NetworkFailure != "" {
+			collectors.Notes = append(collectors.Notes, healthNote{Label: " ", Text: r.NetworkFailure, Bad: true})
+		}
 	}
 	sections := []healthSection{collectors}
 
@@ -197,6 +244,20 @@ func (r healthReport) Sections() []healthSection {
 		}})
 	}
 
+	// --- Network events: only the event-driven collector has counters.
+	if r.HaveNetwork && r.Network.Backend != netevents.BackendPoll {
+		n := r.Network
+		sections = append(sections, healthSection{Title: "Network events", Cells: []healthCell{
+			count("connects", n.Connects), count("failed connects", n.Failed), count("accepts", n.Accepts),
+			count("closes", n.Closes), count("listens", n.Listens), count("udp sockets", n.UDP),
+			bad("kernel drops", n.KernelDrops), bad("unowned closes", n.Unowned), bad("undecodable", n.DecodeErrors),
+			count("undescribed", n.Undescribed),
+			{Label: "sockets tracked", Value: fmt.Sprintf("%d/%d", min(n.SockInserts, netevents.SockTableSize), netevents.SockTableSize)},
+			count("socket inserts", n.SockInserts), count("udp inserts", n.UDPInserts),
+			{Label: "clock error ≤", Value: time.Duration(n.ClockErrorNanos).String()},
+		}})
+	}
+
 	// --- Event bus.
 	sections = append(sections, healthSection{Title: "Event bus", Cells: []healthCell{
 		count("published", b.Published), count("waited", b.Waited), bad("dropped", b.Dropped),
@@ -213,6 +274,7 @@ func (r healthReport) Sections() []healthSection {
 		duration("latency p99", e.DetectionLatency.P99, measured),
 		duration("latency max", e.DetectionLatency.Max, measured),
 		count("latency samples", e.DetectionLatency.Count),
+		{Label: "order tolerance", Value: r.OrderTolerance.String()},
 	}})
 
 	// --- Search effort and the limits it can run into.
@@ -371,6 +433,20 @@ func (r healthReport) LogLine() string {
 			e.ThresholdCounters, e.ThresholdCountersEvicted, e.ThresholdCounterCapHits),
 	)
 
+	if r.HaveNetwork {
+		n := r.Network
+		fields = append(fields, "network_collector="+string(n.Backend))
+		if n.Backend != netevents.BackendPoll {
+			fields = append(fields,
+				fmt.Sprintf("net_connects=%d net_failed=%d net_accepts=%d net_closes=%d net_listens=%d net_udp=%d",
+					n.Connects, n.Failed, n.Accepts, n.Closes, n.Listens, n.UDP),
+				fmt.Sprintf("net_kernel_drops=%d net_unowned=%d net_decode_errors=%d net_undescribed=%d net_sock_inserts=%d net_udp_inserts=%d",
+					n.KernelDrops, n.Unowned, n.DecodeErrors, n.Undescribed, n.SockInserts, n.UDPInserts),
+			)
+		}
+	}
+	fields = append(fields, fmt.Sprintf("order_tolerance_ms=%d", r.OrderTolerance.Milliseconds()))
+
 	if r.HavePatterns {
 		fields = append(fields, fmt.Sprintf("patterns=%d exclusions=%d pattern_errors=%d", r.Patterns, r.Exclusions, len(r.PatternProblems)))
 	}
@@ -381,4 +457,10 @@ func (r healthReport) LogLine() string {
 // Text is Lines joined, for a text view.
 func (h *health) Text() string {
 	return strings.Join(h.Report().Lines(), "\n")
+}
+
+// collectorSummary names the active process and network collectors, for the
+// TUI footer.
+func collectorSummary(processes *processCollection, network *networkCollection) string {
+	return fmt.Sprintf("process %s, network %s", processes.Active(), network.Active())
 }

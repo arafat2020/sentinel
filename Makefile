@@ -26,8 +26,9 @@ clean:
 # Requires clang-18 and llvm-strip-18; the headers are in the repository.
 generate:
 	cd internal/collector/process/procevents && go generate ./...
+	cd internal/collector/network/netevents && go generate ./...
 
 # Fail if the committed eBPF objects and bindings are not what the sources
 # produce. CI runs this.
 generate-check: generate
-	git diff --exit-code -- internal/collector/process/procevents
+	git diff --exit-code -- internal/collector/process/procevents internal/collector/network/netevents

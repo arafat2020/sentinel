@@ -109,6 +109,10 @@ type Source interface {
 	// anything that started after the source was opened are delivered
 	// even if they happened before Run was called.
 	Run(ctx context.Context, seed []core.Process, emit func(core.Event)) error
+	// Lookup returns what the source knows about the process holding pid,
+	// from any goroutine. It is how other collectors describe a process
+	// that may already have exited.
+	Lookup(pid int32) (core.Process, bool)
 	// Stats reports the source's counters. It is safe to call at any time.
 	Stats() Stats
 	// Close releases the backend. Run must have returned.

@@ -85,6 +85,18 @@ type UI struct {
 	settingsPage *SettingsPage
 	resources    *ResourcesPage
 	health       *healthView
+	findings     *FindingsPage
+	footer       *tview.TextView
+	// footerText produces the status line; nil until SetStatusLine.
+	footerText func() string
+	// screen is the terminal, once something has been drawn on it.
+	screen tcell.Screen
+
+	// Changes made off the event loop (a finding arriving, the patterns
+	// file being reloaded) set a flag and wake the loop, which then brings
+	// the affected view up to date. Nothing ever waits on the loop.
+	findingsDirty atomic.Bool
+	patternsDirty atomic.Bool
 
 	// Resource snapshots are rendered by waking the event loop, never by
 	// waiting on it. resourceTick is the wake-up: an event recognised by
@@ -129,9 +141,14 @@ func NewUI() *UI {
 	u.health = newHealthView()
 	u.pages.AddPage(tabNames[tabHealth], u.health, true, false)
 
+	u.footer = tview.NewTextView().SetDynamicColors(true).SetWrap(false)
+	u.footer.SetBackgroundColor(tcell.ColorDarkSlateGray)
+
+	// The footer takes a row only once there is something to say in it.
 	u.root = tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(u.tabBar, 1, 0, false).
-		AddItem(u.pages, 0, 1, true)
+		AddItem(u.pages, 0, 1, true).
+		AddItem(u.footer, 0, 0, false)
 
 	u.app.SetRoot(u.root, true).EnableMouse(false)
 	u.renderTabBar()
@@ -139,9 +156,13 @@ func NewUI() *UI {
 	// The tab bar is wider than a narrow terminal, so it scrolls sideways to
 	// keep the active tab on screen. Re-check whenever the width changes.
 	u.app.SetBeforeDrawFunc(func(screen tcell.Screen) bool {
+		u.screen = screen
 		if w, _ := screen.Size(); w != u.tabBarWidth {
 			u.tabBarWidth = w
 			u.scrollTabBar()
+		}
+		if u.findings != nil {
+			u.findings.Resized()
 		}
 		if u.settingsPage != nil {
 			u.settingsPage.SyncHint()
@@ -154,12 +175,14 @@ func NewUI() *UI {
 		active := u.active
 		u.mu.Unlock()
 
-		// Wake-up from UpdateResources. Returning nil makes tview redraw.
+		// Wake-up from UpdateResources or wake. Returning nil makes tview
+		// redraw.
 		if event == u.resourceTick {
 			u.resourcePending.Store(false)
 			if active == tabResources {
 				u.resources.Render()
 			}
+			u.sync()
 			return nil
 		}
 
@@ -213,6 +236,10 @@ func NewUI() *UI {
 // SetHealth gives the Health tab its text, which it asks for whenever it is
 // drawn. Call before Run.
 func (u *UI) SetHealth(text func() string) { u.health.text = text }
+
+// SetHealthReport gives the Health tab its report, which it lays out for the
+// width of the terminal. Call before Run.
+func (u *UI) SetHealthReport(report func() healthReport) { u.health.report = report }
 
 // SetStore attaches the SQLite store. Call before Run.
 func (u *UI) SetStore(s *store.Store) { u.store = s }
@@ -276,6 +303,7 @@ func (u *UI) switchTab(idx int) {
 		u.resources.Render()
 	}
 	u.pages.SwitchToPage(tabNames[idx])
+	u.renderFooter()
 	if idx == tabSettings {
 		u.app.SetFocus(u.tabBar)
 	} else {
@@ -376,7 +404,7 @@ func interactiveFocus(p tview.Primitive) bool {
 		return false
 	}
 	switch p.(type) {
-	case *tview.InputField, *tview.Button, *tview.DropDown, *tview.Checkbox, *tview.Modal:
+	case *tview.InputField, *tview.Button, *tview.DropDown, *tview.Checkbox, *tview.Modal, *tview.TextArea:
 		return true
 	}
 	return false
@@ -393,17 +421,6 @@ func (u *UI) AddDNS(line string) { u.append(tabDNS, "yellow", line) }
 
 // AddFile logs a file telemetry line.
 func (u *UI) AddFile(line string) { u.append(tabFile, "orange", line) }
-
-// AddFinding logs a behavioral finding.
-func (u *UI) AddFinding(line string) { u.append(tabFindings, "red", line) }
-
-// AddFindingWithEvidence logs a finding and stores its evidence with it. The
-// Findings tab shows the same line either way.
-func (u *UI) AddFindingWithEvidence(line string, evidence core.Evidence) {
-	u.appendPersisting(tabFindings, "red", line, func() {
-		u.store.WriteFinding(line, evidence)
-	})
-}
 
 // UpdateResources hands a fresh resource snapshot to the Resources tab.
 // Goroutine-safe. Snapshots are display-only: they are neither persisted nor
@@ -424,7 +441,16 @@ func (u *UI) UpdateResources(s *core.ResourceSnapshot) {
 	visible := u.active == tabResources || u.active == tabHealth
 	u.mu.Unlock()
 
-	if !visible || u.stopped.Load() {
+	if !visible {
+		return
+	}
+	u.wake()
+}
+
+// wake asks the event loop to bring the views up to date and redraw. It is
+// safe from any goroutine and never waits for the loop.
+func (u *UI) wake() {
+	if u.stopped.Load() {
 		return
 	}
 
@@ -433,4 +459,54 @@ func (u *UI) UpdateResources(s *core.ResourceSnapshot) {
 	if u.resourcePending.CompareAndSwap(false, true) {
 		u.app.QueueEvent(u.resourceTick)
 	}
+}
+
+// sync applies, on the event loop, whatever changed off it.
+func (u *UI) sync() {
+	if u.findingsDirty.Swap(false) && u.findings != nil {
+		u.findings.Refresh()
+	}
+	if u.patternsDirty.Swap(false) && u.patternsPage != nil {
+		u.patternsPage.syncFromStore()
+	}
+	u.renderFooter()
+}
+
+// SetFindings replaces the Findings tab's plain log with the findings list.
+// Call before Run.
+func (u *UI) SetFindings(model *findingsModel, patterns *patternStore) {
+	u.findings = NewFindingsPage(u.app, model, patterns)
+	u.findings.copyText = func(text string) {
+		if u.screen != nil {
+			u.screen.SetClipboard([]byte(text))
+		}
+	}
+	u.pages.AddPage(tabNames[tabFindings], u.findings.Root(), true, false)
+
+	model.OnChange(func() {
+		u.findingsDirty.Store(true)
+		u.wake()
+	})
+	if patterns != nil {
+		patterns.OnChange(func(patternState) {
+			u.patternsDirty.Store(true)
+			u.findingsDirty.Store(true)
+			u.wake()
+		})
+	}
+}
+
+// SetStatusLine gives the TUI a one-line footer, which it asks for whenever
+// something it summarises may have changed. Call before Run.
+func (u *UI) SetStatusLine(text func() string) {
+	u.footerText = text
+	u.root.ResizeItem(u.footer, 1, 0)
+	u.renderFooter()
+}
+
+func (u *UI) renderFooter() {
+	if u.footerText == nil {
+		return
+	}
+	u.footer.SetText(" " + tview.Escape(u.footerText()))
 }

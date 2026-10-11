@@ -38,6 +38,9 @@ type BehaviorPattern struct {
 type RoleExclusion struct {
 	Role  string
 	Match *MatchBlock
+	// Description says why the exclusion exists. It has no effect on
+	// matching.
+	Description string
 }
 
 // Exclusion drops findings: a finding of one of the named rules is discarded

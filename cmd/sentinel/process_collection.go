@@ -27,6 +27,9 @@ type collectorFlags struct {
 	ringBytes *int
 	// healthInterval is how often headless mode logs a HEALTH line.
 	healthInterval *time.Duration
+	// recentFindings is how many stored findings the interfaces show
+	// again after a restart.
+	recentFindings *int
 }
 
 func registerCollectorFlags() collectorFlags {
@@ -37,6 +40,8 @@ func registerCollectorFlags() collectorFlags {
 			"how long after a fork an exec still counts as the process starting (event-driven collectors)"),
 		ringBytes: flag.Int("process-ringbuf-bytes", procevents.DefaultRingBufferBytes,
 			"size of the eBPF ring buffer for process events, rounded up to a power of two"),
+		recentFindings: flag.Int("recent-findings", defaultRecentFindings,
+			"how many stored findings the Findings view shows again after a restart (0 for none)"),
 		healthInterval: flag.Duration("health-interval", healthLogInterval,
 			"how often headless mode logs a HEALTH line with collector, bus and engine counters"),
 	}

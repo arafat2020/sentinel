@@ -166,9 +166,16 @@ type DesktopUI struct {
 	patternAdvancedL *widget.Label
 	patternProblemsL *widget.Label
 	patternLoadErrs  []config.PatternError
+	patternFileError string
 
 	// health renders the Health section of the Settings tab.
 	health func() string
+
+	// findingsModel and patternStore, when set, replace the Findings log
+	// with the findings view and route pattern saves through the store.
+	findingsModel *findingsModel
+	patternStore  *patternStore
+	findingsView  *desktopFindings
 
 	stopOnce sync.Once
 	stopped  chan struct{}
@@ -232,6 +239,9 @@ func (u *DesktopUI) refreshPatternProblems() {
 
 	u.patternsMu.Lock()
 	problems := patternProblems(u.patternLoadErrs, u.patterns)
+	if u.patternFileError != "" {
+		problems = append([]string{u.patternFileError}, problems...)
+	}
 	u.patternsMu.Unlock()
 
 	if len(problems) == 0 {
@@ -312,20 +322,65 @@ func (u *DesktopUI) AddFile(line string) {
 	u.file.push(line)
 }
 
-// AddFinding logs a security finding.
-func (u *DesktopUI) AddFinding(line string) {
-	if u.store != nil {
-		u.store.Write("Findings", line)
+// SetFindings gives the app the findings to show and the pattern-file
+// service its editors and exclusion form save through. Call before Run.
+func (u *DesktopUI) SetFindings(model *findingsModel, patterns *patternStore) {
+	u.findingsModel = model
+	u.patternStore = patterns
+
+	// Both report changes from other goroutines; the widgets belong to the
+	// Fyne thread.
+	model.OnChange(func() {
+		fyne.Do(func() {
+			if u.findingsView != nil {
+				u.findingsView.Refresh()
+			}
+		})
+	})
+	if patterns != nil {
+		u.syncPatternsFromStore()
+		patterns.OnChange(func(patternState) {
+			fyne.Do(func() {
+				u.syncPatternsFromStore()
+				if u.findingsView != nil {
+					u.findingsView.Refresh()
+				}
+			})
+		})
 	}
-	u.findings.push(line)
 }
 
-// AddFindingWithEvidence logs a finding and stores its evidence with it.
-func (u *DesktopUI) AddFindingWithEvidence(line string, evidence core.Evidence) {
-	if u.store != nil {
-		u.store.WriteFinding(line, evidence)
+// syncPatternsFromStore replaces the patterns the editor shows with the ones
+// now in force.
+func (u *DesktopUI) syncPatternsFromStore() {
+	if u.patternStore == nil {
+		return
 	}
-	u.findings.push(line)
+	state := u.patternStore.State()
+
+	u.patternsMu.Lock()
+	u.patterns = append([]correlation.BehaviorPattern{}, state.Patterns...)
+	u.patternLoadErrs = state.Errors
+	u.patternFileError = state.FileError
+	u.patternsMu.Unlock()
+
+	if u.patternListW != nil {
+		u.patternListW.Refresh()
+	}
+	u.refreshPatternProblems()
+}
+
+// buildFindingsTab is the findings view when a model is set, and the plain
+// log otherwise.
+func (u *DesktopUI) buildFindingsTab() fyne.CanvasObject {
+	if u.findingsModel == nil {
+		return u.findings.list
+	}
+
+	u.findingsView = newDesktopFindings(u.findingsModel, u.patternStore)
+	u.findingsView.copyText = func(text string) { u.fyneApp.Clipboard().SetContent(text) }
+	u.findingsView.exclude = u.openExcludeDialog
+	return u.findingsView.root
 }
 
 // ── Password gate ─────────────────────────────────────────────────────────────
@@ -429,7 +484,7 @@ func (u *DesktopUI) buildMainContent() fyne.CanvasObject {
 			u.tabHeader("File Events"), nil, nil, nil, u.file.list,
 		)),
 		container.NewTabItem("Findings", container.NewBorder(
-			u.tabHeader("Security Findings"), nil, nil, nil, u.findings.list,
+			u.tabHeader("Security Findings"), nil, nil, nil, u.buildFindingsTab(),
 		)),
 		container.NewTabItem("Query", u.buildQueryTab()),
 		container.NewTabItem("Patterns", u.buildPatternsTab()),
@@ -673,9 +728,41 @@ func (u *DesktopUI) buildPatternsTab() fyne.CanvasObject {
 	listHeader := widget.NewLabel("Patterns")
 	listHeader.TextStyle = fyne.TextStyle{Bold: true}
 
+	// The YAML editors: all of a pattern, a new one from a template, and
+	// the top-level exclusions. They need the pattern-file service.
+	editYAMLBtn := widget.NewButton("Edit YAML", func() {
+		index := u.patternEditIdx
+		text, err := u.patternStore.PatternYAML(index)
+		if err != nil {
+			dialog.ShowInformation("Edit YAML", "Select a saved pattern first, or use New from YAML.", u.win)
+			return
+		}
+		u.openYAMLWindow("Edit pattern (YAML)", text, func(edited string) []config.EditError {
+			return u.patternStore.SavePatternYAML(index, edited)
+		})
+	})
+	newYAMLBtn := widget.NewButton("New from YAML", func() {
+		u.openYAMLWindow("New pattern (YAML)", config.PatternTemplate, func(edited string) []config.EditError {
+			return u.patternStore.SavePatternYAML(-1, edited)
+		})
+	})
+	exclusionsBtn := widget.NewButton("Exclusions (YAML)", func() {
+		text, err := u.patternStore.ExclusionsYAML()
+		if err != nil {
+			dialog.ShowError(err, u.win)
+			return
+		}
+		u.openYAMLWindow("Top-level exclusions (YAML)", text, u.patternStore.SaveExclusionsYAML)
+	})
+	listButtons := container.NewVBox(container.NewHBox(newPatBtn, delPatBtn))
+	if u.patternStore != nil {
+		listButtons.Add(container.NewHBox(editYAMLBtn, newYAMLBtn))
+		listButtons.Add(exclusionsBtn)
+	}
+
 	leftPanel := container.NewBorder(
 		container.NewVBox(listHeader, widget.NewSeparator()),
-		container.NewHBox(newPatBtn, delPatBtn),
+		listButtons,
 		nil, nil,
 		u.patternListW,
 	)
@@ -772,7 +859,7 @@ func (u *DesktopUI) loadPatternIntoForm(idx int) {
 	u.patternSevSelect.SetSelected(sev)
 
 	if p.UsesAdvancedFields() {
-		u.patternAdvancedL.SetText("⚙ " + advancedFieldsNote + " (kept unchanged when you save)")
+		u.patternAdvancedL.SetText("⚙ " + advancedFieldsNote + " (kept unchanged when you save here; use the Edit YAML button to change them)")
 		u.patternAdvancedL.Show()
 	} else {
 		u.patternAdvancedL.Hide()
@@ -796,6 +883,15 @@ func (u *DesktopUI) commitPatterns() {
 	path := u.patternPath
 	onSave := u.onPatternSave
 	u.patternsMu.Unlock()
+
+	if u.patternStore != nil {
+		// The store checks write access, saves, reloads the engine and
+		// tells this window what is now in force.
+		if err := u.patternStore.SavePatterns(patterns); err != nil {
+			dialog.ShowError(err, u.win)
+		}
+		return
+	}
 
 	if err := config.SavePatterns(path, patterns); err != nil {
 		dialog.ShowError(err, u.win)

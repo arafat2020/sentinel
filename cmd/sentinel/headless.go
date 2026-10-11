@@ -30,7 +30,7 @@ import (
 //
 //	sentinel --headless
 //	nohup sudo sentinel --headless >> /var/log/sentinel.log 2>&1 &
-func runHeadless(ctx context.Context, patterns config.PatternSet, patternsPath string, s *store.Store, collectors collectorFlags) {
+func runHeadless(ctx context.Context, patterns config.PatternSet, patternsPath string, patternErr error, s *store.Store, collectors collectorFlags) {
 	logger := log.New(os.Stdout, "", log.LstdFlags)
 	logger.Printf("sentinel %s starting in headless mode", version)
 
@@ -66,7 +66,9 @@ func runHeadless(ctx context.Context, patterns config.PatternSet, patternsPath s
 		}
 		logger.Printf("FINDING %s", line)
 		if s != nil {
-			s.WriteFinding(line, f.Evidence)
+			// Stored whole, with a status, so that the TUI or the desktop
+			// app can show and triage it later.
+			s.SaveFinding(line, *f)
 		}
 	})
 	coordinator := processDetector.NewCoordinator(procEngine, sink)
@@ -119,6 +121,23 @@ func runHeadless(ctx context.Context, patterns config.PatternSet, patternsPath s
 	netDetector := networkdetector.NewLifecycleDetector()
 	netMonitor := monitor.NewNetworkMonitor(netCollector, netDetector, 2*time.Second, bus)
 
+	// Changes to the patterns file are applied without a restart. What
+	// loads is used; what does not is logged.
+	patternFile := newPatternStore(patternsPath, corrEngine, patterns, patternErr)
+	patternFile.OnChange(func(state patternState) {
+		logger.Printf("patterns reloaded (%s): %d pattern(s) and %d exclusion(s) from %s",
+			state.Source, len(state.Patterns), len(state.Exclusions), patternsPath)
+		for _, warning := range state.Warnings {
+			logger.Printf("PATTERN WARNING %s: %s", patternsPath, warning)
+		}
+		for _, problem := range state.Problems() {
+			logger.Printf("PATTERN ERROR %s: %s", patternsPath, problem)
+		}
+	})
+	if err := patternFile.Watch(ctx, watchDebounce); err != nil {
+		logger.Printf("patterns file is not being watched for changes: %v", err)
+	}
+
 	bus.Start(ctx)
 	collection.Start(ctx, bus, lifecycleDetector, coordinator, corrEngine, func(message string) {
 		logger.Print(message)
@@ -126,7 +145,7 @@ func runHeadless(ctx context.Context, patterns config.PatternSet, patternsPath s
 	go netMonitor.Run(ctx)
 
 	// One line a minute says whether Sentinel is keeping up.
-	report := &health{collection: collection, bus: bus, engine: corrEngine}
+	report := &health{collection: collection, bus: bus, engine: corrEngine, patterns: patternFile}
 	go func() {
 		interval := *collectors.healthInterval
 		if interval <= 0 {

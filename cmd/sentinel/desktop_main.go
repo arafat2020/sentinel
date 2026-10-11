@@ -44,6 +44,7 @@ func runDesktopMode(
 	ctx context.Context,
 	patterns config.PatternSet,
 	patternsPath string,
+	patternErr error,
 	eventStore *store.Store,
 	collectors collectorFlags,
 ) {
@@ -73,7 +74,17 @@ func runDesktopMode(
 	})
 
 	bus := eventbus.New(1000)
-	dui.SetHealth((&health{collection: collection, bus: bus, engine: corrEngine}).Text)
+
+	findings := newFindingsModel(eventStore)
+	if _, err := findings.LoadRecent(*collectors.recentFindings); err != nil {
+		fmt.Fprintf(os.Stderr, "sentinel: could not load stored findings: %v\n", err)
+	}
+	patternFile := newPatternStore(patternsPath, corrEngine, patterns, patternErr)
+	dui.SetFindings(findings, patternFile)
+	if err := patternFile.Watch(ctx, watchDebounce); err != nil {
+		fmt.Fprintf(os.Stderr, "sentinel: patterns file is not being watched for changes: %v\n", err)
+	}
+	dui.SetHealth((&health{collection: collection, bus: bus, engine: corrEngine, patterns: patternFile}).Text)
 
 	// ── Process detection ─────────────────────────────────────────────────────
 
@@ -84,7 +95,7 @@ func runDesktopMode(
 	procEngine := processDetector.NewEngine(registry)
 
 	sink := finding.NewSinkFunc(func(f *core.Finding) {
-		dui.AddFindingWithEvidence(findingLine(f), f.Evidence)
+		findings.Add(*f)
 	})
 	coordinator := processDetector.NewCoordinator(procEngine, sink)
 

@@ -4,7 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -36,6 +39,15 @@ type writeReq struct {
 	// evidence is a finding's evidence as JSON, or empty for a row that has
 	// none.
 	evidence string
+	// finding is a finding's header (everything but its evidence) as JSON,
+	// and findingID its ID; both empty for rows that are not findings.
+	finding   string
+	findingID string
+
+	// status, when set, makes this a change of a stored finding's status
+	// rather than a new row. key says which finding.
+	status core.FindingStatus
+	key    string
 }
 
 // Open opens (or creates) the SQLite database at path and starts the
@@ -82,13 +94,23 @@ func migrate(db *sql.DB) error {
 		return err
 	}
 
-	return addEvidenceColumn(db)
+	// Columns added since the table was first created. Each is nullable,
+	// so rows written by earlier versions simply lack a value.
+	for _, column := range []string{"evidence TEXT", "finding TEXT", "finding_id TEXT", "status TEXT"} {
+		if err := addColumn(db, column); err != nil {
+			return err
+		}
+	}
+
+	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_events_finding_id ON events(finding_id)`)
+	return err
 }
 
-// addEvidenceColumn gives the events table its evidence column if a database
-// created by an earlier version does not have it. The column is nullable:
-// existing rows, and rows that are not findings, simply have no evidence.
-func addEvidenceColumn(db *sql.DB) error {
+// addColumn gives the events table a column ("name TYPE") if a database
+// created by an earlier version does not have it.
+func addColumn(db *sql.DB, definition string) error {
+	wanted := strings.Fields(definition)[0]
+
 	rows, err := db.Query(`SELECT name FROM pragma_table_info('events')`)
 	if err != nil {
 		return err
@@ -100,7 +122,7 @@ func addEvidenceColumn(db *sql.DB) error {
 		if err := rows.Scan(&name); err != nil {
 			return err
 		}
-		if name == "evidence" {
+		if name == wanted {
 			return nil
 		}
 	}
@@ -109,7 +131,7 @@ func addEvidenceColumn(db *sql.DB) error {
 	}
 	rows.Close()
 
-	_, err = db.Exec(`ALTER TABLE events ADD COLUMN evidence TEXT`)
+	_, err = db.Exec(`ALTER TABLE events ADD COLUMN ` + definition)
 	return err
 }
 
@@ -138,6 +160,137 @@ func (s *Store) WriteFinding(line string, evidence core.Evidence) {
 	}
 }
 
+// SaveFinding queues a finding for storage: its display line, its header and
+// its evidence, with the status "new". Like Write it does not block, and
+// drops the row if the buffer is full.
+func (s *Store) SaveFinding(line string, f core.Finding) {
+	evidence, err := json.Marshal(f.Evidence)
+	if err != nil {
+		evidence = nil
+	}
+
+	header := f
+	header.Evidence = core.Evidence{}
+	encoded, err := json.Marshal(header)
+	if err != nil {
+		encoded = nil
+	}
+
+	ts := f.Timestamp
+	if ts.IsZero() {
+		ts = time.Now()
+	}
+
+	select {
+	case s.writeCh <- writeReq{ts: ts, tab: findingsTab, line: line, evidence: string(evidence), finding: string(encoded), findingID: f.ID}:
+	default:
+	}
+}
+
+// rowKeyPrefix begins the key of a stored finding that has no ID of its own:
+// one written before findings were stored whole. The rest is its row number.
+const rowKeyPrefix = "row-"
+
+// SetFindingStatus records what has been done about a stored finding. key is
+// the Key of a StoredFinding. The change is queued behind any finding still
+// waiting to be written, so it is safe to call straight after SaveFinding.
+func (s *Store) SetFindingStatus(key string, status core.FindingStatus) error {
+	if !core.ValidStatus(status) {
+		return fmt.Errorf("unknown finding status %q", status)
+	}
+	if key == "" {
+		return errors.New("finding has no key")
+	}
+
+	select {
+	case s.writeCh <- writeReq{status: status, key: key}:
+		return nil
+	default:
+		return errors.New("store is busy; status not saved")
+	}
+}
+
+func setStatus(tx *sql.Tx, key string, status core.FindingStatus) {
+	if row, isRow := strings.CutPrefix(key, rowKeyPrefix); isRow {
+		if id, err := strconv.ParseInt(row, 10, 64); err == nil {
+			tx.Exec(`UPDATE events SET status=? WHERE id=? AND tab=?`, string(status), id, findingsTab)
+		}
+		return
+	}
+	tx.Exec(`UPDATE events SET status=? WHERE finding_id=?`, string(status), key)
+}
+
+// StoredFinding is a finding read back from the store.
+type StoredFinding struct {
+	// Key identifies the finding to SetFindingStatus.
+	Key     string
+	Finding core.Finding
+	// Line is the one-line form the finding was stored with.
+	Line   string
+	Status core.FindingStatus
+}
+
+// RecentFindings returns the most recent findings, oldest first, at most
+// limit of them.
+//
+// Findings stored by earlier versions are included. One stored before
+// findings were kept whole has only its line and perhaps its evidence: its
+// line becomes its title, its time is when it was stored, and its rule and
+// severity are unknown. One stored before statuses existed is "new".
+func (s *Store) RecentFindings(limit int) ([]StoredFinding, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+
+	rows, err := s.db.Query(
+		`SELECT id, ts, line, evidence, finding, finding_id, status FROM events WHERE tab=? ORDER BY id DESC LIMIT ?`,
+		findingsTab, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var found []StoredFinding
+	for rows.Next() {
+		var (
+			id                                    int64
+			ts, line                              string
+			evidence, header, findingID, statusIn sql.NullString
+		)
+		if err := rows.Scan(&id, &ts, &line, &evidence, &header, &findingID, &statusIn); err != nil {
+			continue
+		}
+
+		stored := StoredFinding{Line: line, Status: core.StatusNew}
+		if status := core.FindingStatus(statusIn.String); core.ValidStatus(status) {
+			stored.Status = status
+		}
+
+		if header.Valid && json.Unmarshal([]byte(header.String), &stored.Finding) == nil && findingID.String != "" {
+			stored.Key = findingID.String
+		} else {
+			stored.Key = rowKeyPrefix + strconv.FormatInt(id, 10)
+			stored.Finding = core.Finding{ID: stored.Key, Title: line}
+			stored.Finding.Timestamp, _ = time.Parse(time.RFC3339Nano, ts)
+		}
+
+		if evidence.Valid && evidence.String != "" {
+			json.Unmarshal([]byte(evidence.String), &stored.Finding.Evidence)
+		}
+
+		found = append(found, stored)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Newest first came out of the query; the caller wants them in order.
+	for i, j := 0, len(found)-1; i < j; i, j = i+1, j-1 {
+		found[i], found[j] = found[j], found[i]
+	}
+	return found, nil
+}
+
 func (s *Store) writeLoop() {
 	defer close(s.stopped)
 	ticker := time.NewTicker(flushInterval)
@@ -154,18 +307,33 @@ func (s *Store) writeLoop() {
 			batch = batch[:0]
 			return
 		}
-		stmt, err := tx.Prepare("INSERT INTO events(ts,tab,line,evidence) VALUES(?,?,?,?)")
+		stmt, err := tx.Prepare("INSERT INTO events(ts,tab,line,evidence,finding,finding_id,status) VALUES(?,?,?,?,?,?,?)")
 		if err != nil {
 			tx.Rollback()
 			batch = batch[:0]
 			return
 		}
-		for _, r := range batch {
-			var evidence any // NULL unless the row has evidence
-			if r.evidence != "" {
-				evidence = r.evidence
+		// NULL unless the row has a value.
+		orNull := func(s string) any {
+			if s == "" {
+				return nil
 			}
-			stmt.Exec(r.ts.UTC().Format(time.RFC3339Nano), r.tab, r.line, evidence)
+			return s
+		}
+		for _, r := range batch {
+			// Status changes travel through the same queue as the rows
+			// they change, so one never overtakes the other.
+			if r.status != "" {
+				setStatus(tx, r.key, r.status)
+				continue
+			}
+
+			status := ""
+			if r.findingID != "" {
+				status = string(core.StatusNew)
+			}
+			stmt.Exec(r.ts.UTC().Format(time.RFC3339Nano), r.tab, r.line,
+				orNull(r.evidence), orNull(r.finding), orNull(r.findingID), orNull(status))
 		}
 		stmt.Close()
 		tx.Commit()

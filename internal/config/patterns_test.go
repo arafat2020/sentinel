@@ -863,7 +863,7 @@ func TestShippedPatternReplacesTheNodePythonRule(t *testing.T) {
 
 	for _, python := range []string{"python", "python3", "python3.12"} {
 		findings := run("node", python)
-		if len(findings) != 1 || findings[0].Rule != "suspicious-child-process" || findings[0].Severity != core.SeverityHigh {
+		if len(findings) != 1 || findings[0].Rule != "suspicious-child-process" || findings[0].Severity != core.SeverityMedium {
 			t.Fatalf("node spawning %s: findings = %+v", python, findings)
 		}
 		if roles := findings[0].Evidence.Roles; roles["parent"].PID != 100 || roles["child"].PID != 200 {

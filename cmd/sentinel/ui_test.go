@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -705,4 +706,128 @@ func TestResourceMonitorExitsWhenUIStopsWithUpdatePending(t *testing.T) {
 
 	close(release)
 	<-unstalled
+}
+
+// addLines delivers telemetry the way the event bus does and waits until the
+// coalesced wake has flushed the active tab (a mid-burst flush may leave
+// later lines pending, so this drains until settled).
+func (h *uiHarness) addLines(add func(string), n int, prefix string) {
+	h.t.Helper()
+	for i := 0; i < n; i++ {
+		add(fmt.Sprintf("%s-%d", prefix, i))
+	}
+	h.drainTelemetry()
+}
+
+// drainTelemetry waits until there is no pending wake and the active
+// telemetry tab has no unflushed ring lines.
+func (h *uiHarness) drainTelemetry() {
+	h.t.Helper()
+	deadline := time.Now().Add(loopTimeout)
+	for time.Now().Before(deadline) {
+		select {
+		case <-h.ticks:
+		case <-time.After(2 * time.Millisecond):
+		}
+		h.onLoop(func() {})
+		if h.ui.resourcePending.Load() {
+			continue
+		}
+		h.ui.mu.Lock()
+		active := h.ui.active
+		dirty := active < tabFindings && (h.ui.rebuild[active] || len(h.ui.pending[active]) > 0)
+		h.ui.mu.Unlock()
+		if !dirty {
+			return
+		}
+	}
+	h.t.Fatal("telemetry wake/flush did not settle")
+}
+
+func (h *uiHarness) viewText(tab int) (text string) {
+	h.t.Helper()
+	h.onLoop(func() { text = h.ui.views[tab].GetText(false) })
+	return text
+}
+
+// Regression: Add* used QueueUpdateDraw, which blocks the caller (the event
+// bus) until a full screen paint finishes. Under load — especially over SSH —
+// that made the TUI laggy and stalled detection. Burst AddProcess must return
+// even while the event loop is stalled.
+func TestTelemetryAddDoesNotBlockOnEventLoop(t *testing.T) {
+	h := newUIHarness(t)
+
+	stalled := make(chan struct{})
+	release := make(chan struct{})
+	unstalled := make(chan struct{})
+	go func() {
+		defer close(unstalled)
+		h.ui.app.QueueUpdate(func() {
+			close(stalled)
+			<-release
+		})
+	}()
+	<-stalled
+
+	// Stay under ringCap so both ends remain visible after the flush.
+	const burst = 200
+	h.await("burst AddProcess while loop stalled", func() {
+		for i := 0; i < burst; i++ {
+			h.ui.AddProcess(fmt.Sprintf("proc-%d", i))
+		}
+	})
+	if !h.ui.resourcePending.Load() {
+		t.Fatal("visible Process tab should have a coalesced wake pending")
+	}
+
+	close(release)
+	<-unstalled
+	h.drainTelemetry()
+
+	text := h.viewText(tabProcess)
+	if !strings.Contains(text, "proc-0") || !strings.Contains(text, fmt.Sprintf("proc-%d", burst-1)) {
+		t.Fatalf("Process view missing burst ends; got %d bytes", len(text))
+	}
+	if h.ui.resourcePending.Load() {
+		t.Error("wake still marked pending after it was handled")
+	}
+}
+
+func TestTelemetryRingWrapAndHiddenTabCatchUp(t *testing.T) {
+	h := newUIHarness(t)
+
+	// Fill past the ring capacity on the visible Process tab.
+	h.addLines(h.ui.AddProcess, ringCap+25, "wrap")
+	text := h.viewText(tabProcess)
+	lines := strings.Count(text, "\n")
+	if lines > ringCap {
+		t.Fatalf("Process view has %d lines, want ≤ %d", lines, ringCap)
+	}
+	if strings.Contains(text, "wrap-0") {
+		t.Fatal("oldest line should have been evicted from the ring")
+	}
+	if !strings.Contains(text, fmt.Sprintf("wrap-%d", ringCap+24)) {
+		t.Fatal("newest line missing after wrap")
+	}
+
+	// Network lines while Process is showing must not wake or paint Network.
+	for i := 0; i < 3; i++ {
+		h.ui.AddNetwork(fmt.Sprintf("net-%d", i))
+	}
+	if h.ui.resourcePending.Load() {
+		t.Fatal("hidden Network tab woke the event loop")
+	}
+	if got := h.viewText(tabNetwork); got != "" {
+		t.Fatalf("hidden Network view painted early: %q", got)
+	}
+
+	// Switching materializes the ring without needing another Add*.
+	h.key(tcell.KeyRune, '2')
+	h.wantTab(tabNetwork)
+	netText := h.viewText(tabNetwork)
+	for i := 0; i < 3; i++ {
+		if !strings.Contains(netText, fmt.Sprintf("net-%d", i)) {
+			t.Fatalf("after switch, Network view missing net-%d:\n%s", i, netText)
+		}
+	}
 }

@@ -71,15 +71,21 @@ func (r *ringBuf) content() string {
 // UI is a tview-based terminal dashboard with one scrolling pane per telemetry
 // type. All Add* methods are goroutine-safe.
 type UI struct {
-	app          *tview.Application
-	root         *tview.Flex
-	pages        *tview.Pages
-	views        [tabPatterns]*tview.TextView // telemetry text views (indices 0-4)
-	tabBar       *tview.TextView
-	tabBarWidth  int // last drawn screen width; event loop only
-	active       int
-	mu           sync.Mutex // guards active + rings
-	rings        [tabPatterns]ringBuf
+	app         *tview.Application
+	root        *tview.Flex
+	pages       *tview.Pages
+	views       [tabPatterns]*tview.TextView // telemetry text views (indices 0-4)
+	tabBar      *tview.TextView
+	tabBarWidth int // last drawn screen width; event loop only
+	active      int
+	mu          sync.Mutex // guards active, rings, pending, rebuild
+	rings       [tabPatterns]ringBuf
+	// pending holds formatted lines not yet written to the TextView.
+	// Cleared when rebuild is set (ring wrapped) or after a flush.
+	pending [tabPatterns][]string
+	// rebuild means the next flush must SetText from the full ring
+	// (a wrap evicted lines the TextView still shows).
+	rebuild      [tabPatterns]bool
 	store        *store.Store
 	patternsPage *PatternsPage
 	settingsPage *SettingsPage
@@ -93,14 +99,17 @@ type UI struct {
 	screen tcell.Screen
 
 	// Changes made off the event loop (a finding arriving, the patterns
-	// file being reloaded) set a flag and wake the loop, which then brings
-	// the affected view up to date. Nothing ever waits on the loop.
+	// file being reloaded, telemetry lines) set a flag and wake the loop,
+	// which then brings the affected view up to date. Nothing ever waits
+	// on the loop — tview's QueueUpdate blocks the caller until draw
+	// finishes, which would stall the event bus under load (especially
+	// over SSH).
 	findingsDirty atomic.Bool
 	patternsDirty atomic.Bool
 
-	// Resource snapshots are rendered by waking the event loop, never by
-	// waiting on it. resourceTick is the wake-up: an event recognised by
-	// pointer identity, so no real keystroke can be mistaken for it.
+	// Resource snapshots and coalesced telemetry flushes wake the event
+	// loop with resourceTick: an event recognised by pointer identity, so
+	// no real keystroke can be mistaken for it.
 	resourceTick    *tcell.EventKey
 	resourcePending atomic.Bool // a tick is queued and not yet handled
 	stopped         atomic.Bool // Stop was called or the event loop exited
@@ -114,11 +123,12 @@ func NewUI() *UI {
 	u.resourceTick = tcell.NewEventKey(tcell.KeyNUL, 0, tcell.ModNone)
 
 	for i := range u.views {
+		// No SetChangedFunc(Draw): the coalesced wake path owns redraws.
+		// A per-change Draw would fight QueueUpdateDraw and amplify SSH cost.
 		tv := tview.NewTextView().
 			SetDynamicColors(true).
 			SetScrollable(true).
-			SetWrap(true).
-			SetChangedFunc(func() { u.app.Draw() })
+			SetWrap(true)
 		tv.SetBorder(false)
 		u.views[i] = tv
 	}
@@ -302,6 +312,10 @@ func (u *UI) switchTab(idx int) {
 		// Samples that arrived while the tab was hidden were not rendered.
 		u.resources.Render()
 	}
+	// Hidden telemetry tabs only update their ring; catch up the TextView now.
+	if idx < tabFindings {
+		u.flushTelemetryTab(idx)
+	}
 	u.pages.SwitchToPage(tabNames[idx])
 	u.renderFooter()
 	if idx == tabSettings {
@@ -359,8 +373,9 @@ func tabBarOffset(active, width int) int {
 // append writes a line to a telemetry tab. It:
 //  1. Persists the raw line to SQLite (if store is wired).
 //  2. Pushes the formatted display line to a bounded ring buffer.
-//  3. If the ring wrapped (old lines evicted), redraws the TextView from the
-//     ring buffer content instead of appending — preventing unbounded RAM use.
+//  3. Wakes the event loop to flush the active tab (coalesced). It never
+//     calls QueueUpdateDraw: that blocks the caller until a full screen
+//     paint finishes and would stall the event bus under load.
 func (u *UI) append(tab int, color, rawLine string) {
 	u.appendPersisting(tab, color, rawLine, func() {
 		u.store.Write(tabNames[tab], rawLine)
@@ -379,21 +394,63 @@ func (u *UI) appendPersisting(tab int, color, rawLine string, persist func()) {
 
 	u.mu.Lock()
 	wrapped := u.rings[tab].push(formatted)
-	var full string
 	if wrapped {
+		u.rebuild[tab] = true
+		u.pending[tab] = nil
+	} else {
+		u.pending[tab] = append(u.pending[tab], formatted)
+	}
+	active := u.active
+	u.mu.Unlock()
+
+	// Hidden tabs catch up in switchTab; only the visible tab needs a wake.
+	if active == tab {
+		u.wake()
+	}
+}
+
+// flushTelemetryTab writes pending ring lines into the TextView for tab.
+// Must run on the event loop. No-op when there is nothing to flush.
+func (u *UI) flushTelemetryTab(tab int) {
+	if tab < 0 || tab >= tabFindings {
+		return
+	}
+
+	u.mu.Lock()
+	rebuild := u.rebuild[tab]
+	var pending []string
+	var full string
+	if rebuild {
 		full = u.rings[tab].content()
+		u.rebuild[tab] = false
+		u.pending[tab] = nil
+	} else if len(u.pending[tab]) > 0 {
+		pending = u.pending[tab]
+		u.pending[tab] = nil
+	} else {
+		u.mu.Unlock()
+		return
 	}
 	u.mu.Unlock()
 
-	u.app.QueueUpdateDraw(func() {
-		tv := u.views[tab]
-		if full != "" {
-			tv.SetText(full)
-		} else {
-			fmt.Fprint(tv, formatted)
+	tv := u.views[tab]
+	if rebuild {
+		tv.SetText(full)
+	} else {
+		for _, line := range pending {
+			fmt.Fprint(tv, line)
 		}
-		tv.ScrollToEnd()
-	})
+	}
+	tv.ScrollToEnd()
+}
+
+// flushTelemetry flushes the active telemetry tab, if any.
+// Must run on the event loop.
+func (u *UI) flushTelemetry() {
+	u.mu.Lock()
+	active := u.active
+	u.mu.Unlock()
+	u.flushTelemetryTab(active)
 }
 
 // interactiveFocus returns true when p is a widget that needs raw key events
@@ -463,6 +520,7 @@ func (u *UI) wake() {
 
 // sync applies, on the event loop, whatever changed off it.
 func (u *UI) sync() {
+	u.flushTelemetry()
 	if u.findingsDirty.Swap(false) && u.findings != nil {
 		u.findings.Refresh()
 	}

@@ -82,15 +82,56 @@ if ($machinePath -notlike "*$DEST*") {
     Write-Ok "$DEST already in PATH."
 }
 
-# --- 7. Check Npcap ---
+# --- 7. Install Npcap if missing (required for DNS telemetry) ---
+# Free Npcap has no silent install; we download from npcap.com and launch the GUI.
+# Pin the version so the URL stays stable; bump when a new release is needed.
+$NPCAP_VERSION = "1.89"
+$NPCAP_URL     = "https://npcap.com/dist/npcap-$NPCAP_VERSION.exe"
+
 Write-Host ""
 $npcap = Get-ItemProperty "HKLM:\SOFTWARE\Npcap" -ErrorAction SilentlyContinue
-if (-not $npcap) {
+if ($npcap) {
+    Write-Ok "Npcap detected."
+} else {
     Write-Host "  [!] Npcap is NOT installed." -ForegroundColor Yellow
     Write-Host "      DNS telemetry requires Npcap with 'WinPcap API-compatible Mode'." -ForegroundColor Yellow
-    Write-Host "      Download: https://npcap.com/#download" -ForegroundColor Yellow
-} else {
-    Write-Ok "Npcap detected."
+
+    $ans = "Y"
+    try {
+        $ans = Read-Host "  Download and run the Npcap installer now? [Y/n]"
+    } catch {
+        # Non-interactive host — default to installing.
+    }
+
+    if ($ans -match '^[nN]') {
+        Write-Host "      Skipping. Install later from https://npcap.com/#download" -ForegroundColor Yellow
+    } else {
+        $npcapInstaller = Join-Path $env:TEMP "npcap-$NPCAP_VERSION.exe"
+        try {
+            Write-Step "Downloading Npcap $NPCAP_VERSION..."
+            Invoke-WebRequest -Uri $NPCAP_URL -OutFile $npcapInstaller -UseBasicParsing
+            Write-Ok "Downloaded $npcapInstaller"
+
+            Write-Step "Launching Npcap installer..."
+            Write-Host "      Enable 'WinPcap API-compatible Mode' when prompted." -ForegroundColor Yellow
+            $proc = Start-Process -FilePath $npcapInstaller -Wait -PassThru
+
+            $npcap = Get-ItemProperty "HKLM:\SOFTWARE\Npcap" -ErrorAction SilentlyContinue
+            if ($npcap) {
+                Write-Ok "Npcap installed."
+            } elseif ($proc.ExitCode -eq 0) {
+                Write-Host "  [--] Installer finished; restart the terminal if Npcap is not detected yet." -ForegroundColor Yellow
+            } else {
+                Write-Host "  [!] Npcap installer exited with code $($proc.ExitCode)." -ForegroundColor Yellow
+                Write-Host "      Install manually: https://npcap.com/#download" -ForegroundColor Yellow
+            }
+        } catch {
+            Write-Host "  [!] Could not download/run Npcap: $_" -ForegroundColor Yellow
+            Write-Host "      Install manually: https://npcap.com/#download" -ForegroundColor Yellow
+        } finally {
+            Remove-Item $npcapInstaller -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 # --- Done ---

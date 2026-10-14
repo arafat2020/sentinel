@@ -142,7 +142,7 @@ The installer:
 2. Verifies the SHA-256 checksum
 3. Installs to `C:\Program Files\Sentinel\sentinel.exe`
 4. Adds the install directory to the system `PATH`
-5. Checks whether Npcap is installed (required for DNS telemetry)
+5. If Npcap is missing, downloads it from [npcap.com](https://npcap.com/#download) and launches the installer (required for DNS telemetry)
 
 After install, open an **elevated terminal** and run:
 
@@ -150,8 +150,8 @@ After install, open an **elevated terminal** and run:
 sentinel.exe
 ```
 
-> **DNS telemetry prerequisite:** install [Npcap](https://npcap.com/#download) with
-> "WinPcap API-compatible Mode" enabled before running Sentinel.
+> **Npcap:** when the installer prompts, leave **WinPcap API-compatible Mode**
+> enabled. Free Npcap has no silent install, so a short GUI step is expected.
 
 ### Windows (build from source)
 

@@ -153,6 +153,19 @@ sentinel.exe
 > **Npcap:** when the installer prompts, leave **WinPcap API-compatible Mode**
 > enabled. Free Npcap has no silent install, so a short GUI step is expected.
 
+To remove the Sentinel binary and PATH entry while preserving Npcap and data
+files (e.g. `sentinel.db`):
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/arafat2020/sentinel/main/uninstall.ps1 | iex"
+```
+
+To skip the confirmation prompt:
+
+```powershell
+$env:SENTINEL_ASSUME_YES='1'; irm https://raw.githubusercontent.com/arafat2020/sentinel/main/uninstall.ps1 | iex
+```
+
 ### Windows (build from source)
 
 ```powershell
@@ -491,7 +504,9 @@ sentinel/
 ├── configs/
 │   └── patterns.yaml         # YAML behavioral pattern definitions (hot-reloaded)
 ├── install.sh                # Linux one-liner installer
+├── uninstall.sh              # Linux one-liner uninstaller
 ├── install.ps1               # Windows one-liner installer (PowerShell)
+├── uninstall.ps1             # Windows one-liner uninstaller (PowerShell)
 └── .github/workflows/
     └── release.yml           # Multi-arch CI release pipeline
 ```

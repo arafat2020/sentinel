@@ -16,7 +16,6 @@ coverage.out
 *.exe
 *.dll
 *.so
-temp_auto_push.bat
 *.dylib
 *.test
 *.out
@@ -36,4 +35,5 @@ sentinel.db
 sentinel.db-shm
 sentinel.db-wal
 .gitignore
-branch_structure.json
+config.bat
+node_modules
